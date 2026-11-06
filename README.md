@@ -1,15 +1,84 @@
 # Holon Go SDK
 
-Use the official MCP Go SDK to register typed tools and pass the server to
-`holon.Serve(ctx, server)`. Run the executable under Holon's host; `HOLON_HOST_URL`
-is supplied by the platform. The SDK binds only a private loopback listener.
+[![CI](https://github.com/holon-sh/sdk-go/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/holon-sh/sdk-go/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/holon-sh/sdk-go.svg)](https://pkg.go.dev/github.com/holon-sh/sdk-go)
+[![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go)](https://go.dev/doc/install)
+[![Apache 2.0 License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
-Inside a tool handler, `holon.Context(ctx).Principal` contains the admitted
-issuer, subject, client ID, scopes, claims, and actor, or is nil for anonymous
-requests. Platform credentials and headers are not exposed to tool handlers.
+This repository contains the Go runtime for [`holon`](https://github.com/holon-sh/cli).
 
-`holon.Connect(ctx, "orders")` connects an official MCP client session to a
-manifest-declared dependency. Close the session after use. Calls require an
-active incoming request and stop when that request ends, even when an application
-retains a context without cancellation. Connections cannot be reused across
-incoming requests. The broker remains responsible for authorization.
+## Install
+
+```sh
+go get github.com/holon-sh/sdk-go@latest
+```
+
+## Invoking MCP Servers
+
+The Holon Go SDK allows generation of type-safe MCP clients. See [Example](https://github.com/holon-sh/cli#example) for an explanation, or [Dependencies](https://github.com/holon-sh/cli#dependencies) to understand dependency resolution.
+
+### Type-checking MCP invocations
+
+```sh
+holon types generate
+go test ./...
+```
+
+Clients are generated into the project's `holon/` package.
+
+<details open>
+<summary><h3>Call a tool</h3></summary>
+
+```go
+import apps "example.com/foo/holon"
+
+func greet(ctx context.Context, name string) (string, error) {
+	greeting, err := apps.Bar.Greet(ctx, apps.BarGreetInput{Name: name})
+	if err != nil {
+		return "", err
+	}
+	return greeting.Result, nil
+}
+```
+
+Arguments are validated before sending; the result is validated against the output schema and returned.
+
+</details>
+
+<details open>
+<summary><h3>Handle errors</h3></summary>
+
+```go
+var failure *holon.ToolCallError
+if errors.As(err, &failure) {
+	failure.Code   // "tool_error" or "input_required"
+	failure.Result // the original MCP result
+}
+```
+
+</details>
+
+<details open>
+<summary><h3>Read the whole result</h3></summary>
+
+`CallTool` returns the full MCP result instead of an error:
+
+```go
+result, err := apps.Bar.CallTool(ctx, &mcp.CallToolParams{
+	Name:      "greet",
+	Arguments: apps.BarGreetInput{Name: "world"},
+})
+```
+
+</details>
+
+## Serve under Holon
+
+Register typed tools with the [official MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) and pass the server to `holon.Serve`. Run the executable under Holon's host, which supplies `HOLON_HOST_URL`.
+
+```go
+server := mcp.NewServer(&mcp.Implementation{Name: "foo", Version: "1.0.0"}, nil)
+err := holon.Serve(ctx, server)
+```
+
+Inside a tool handler, `holon.Context(ctx).Principal` is the admitted caller, or nil for anonymous requests. `holon.Connect(ctx, "bar")` opens an MCP client session to a declared dependency for the current request.
