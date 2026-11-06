@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -43,7 +45,29 @@ func validate(schema string, value any) error {
 	return compiled.Validate(decoded)
 }
 
-func (d *Dependency) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+// ElicitHandler answers a server's question during one tool call.
+type ElicitHandler func(context.Context, *mcp.ElicitParams) (*mcp.ElicitResult, error)
+
+func send(ctx context.Context, client *mcp.ClientSession, params mcp.CallToolParams, elicit []ElicitHandler) (*mcp.CallToolResult, error) {
+	for round := 0; ; round++ {
+		result, err := client.CallTool(ctx, &params)
+		// A server may keep asking, so answering stops after ten rounds and the last question reaches the caller.
+		if err != nil || !result.NeedsInput() || len(elicit) == 0 || elicit[0] == nil || round == 10 {
+			return result, err
+		}
+		params.RequestState = result.RequestState
+		params.InputResponses = mcp.InputResponseMap{}
+		for _, key := range slices.Sorted(maps.Keys(result.InputRequests)) {
+			if question, ok := result.InputRequests[key].(*mcp.ElicitParams); ok {
+				if params.InputResponses[key], err = elicit[0](ctx, question); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+}
+
+func (d *Dependency) CallTool(ctx context.Context, params *mcp.CallToolParams, elicit ...ElicitHandler) (*mcp.CallToolResult, error) {
 	if params == nil {
 		return nil, errors.New("tool parameters are required")
 	}
@@ -59,7 +83,7 @@ func (d *Dependency) CallTool(ctx context.Context, params *mcp.CallToolParams) (
 		return nil, err
 	}
 	defer client.Close()
-	result, err := client.CallTool(ctx, params)
+	result, err := send(ctx, client, *params, elicit)
 	if err != nil {
 		return nil, err
 	}
@@ -78,11 +102,19 @@ type ToolCallError struct {
 	Result *mcp.CallToolResult
 }
 
-func (e *ToolCallError) Error() string { return fmt.Sprintf("%s.%s: %s", e.App, e.Tool, e.Code) }
+func (e *ToolCallError) Error() string {
+	message := fmt.Sprintf("%s.%s: %s", e.App, e.Tool, e.Code)
+	for _, key := range slices.Sorted(maps.Keys(e.Result.InputRequests)) {
+		if question, ok := e.Result.InputRequests[key].(*mcp.ElicitParams); ok {
+			message = strings.TrimSpace(message + ": " + question.Message + " " + question.URL)
+		}
+	}
+	return message
+}
 
-func Call[Output any](ctx context.Context, dependency *Dependency, name string, input any) (Output, error) {
+func Call[Output any](ctx context.Context, dependency *Dependency, name string, input any, elicit ...ElicitHandler) (Output, error) {
 	var output Output
-	result, err := dependency.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: input})
+	result, err := dependency.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: input}, elicit...)
 	if err != nil {
 		return output, err
 	}

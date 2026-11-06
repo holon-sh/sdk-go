@@ -72,6 +72,22 @@ result, err := apps.Bar.CallTool(ctx, &mcp.CallToolParams{
 
 </details>
 
+<details open>
+<summary><h3>Answer a server's question</h3></summary>
+
+A tool can stop and ask for input through an [MCP elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation). Pass a handler to answer in place:
+
+```go
+result, err := apps.Bar.CallTool(ctx, params, func(ctx context.Context, question *mcp.ElicitParams) (*mcp.ElicitResult, error) {
+	answer, err := ask(ctx, question.Message)
+	return &mcp.ElicitResult{Action: "accept", Content: map[string]any{"name": answer}}, err
+})
+```
+
+Without a handler, the question arrives on `ToolCallError.Result`, or as an `input_required` result from `CallTool`. To answer later, for example in another request, call again with `InputResponses` and `RequestState`.
+
+</details>
+
 ## Serve under Holon
 
 Register typed tools with the [official MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) and pass the server to `holon.Serve`. Run the executable under Holon's host, which supplies `HOLON_HOST_URL`.
