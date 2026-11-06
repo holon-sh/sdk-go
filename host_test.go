@@ -14,7 +14,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	holon "github.com/holon-sh/sdk/go"
+	holon "github.com/holon-sh/sdk-go"
 )
 
 type scopeTransport struct{ scope string }

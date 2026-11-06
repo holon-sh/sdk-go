@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	holon "github.com/holon-sh/sdk/go"
+	holon "github.com/holon-sh/sdk-go"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

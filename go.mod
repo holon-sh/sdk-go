@@ -1,4 +1,4 @@
-module github.com/holon-sh/sdk/go
+module github.com/holon-sh/sdk-go
 
 go 1.27.0
 
