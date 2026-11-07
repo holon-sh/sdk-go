@@ -22,7 +22,11 @@ func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 	if name == "" || endpoint != scope.host+"/peer/"+url.PathEscape(name) {
 		return nil, fmt.Errorf("dependency %q is not bound to the Holon host", name)
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "holon-go", Version: "0.1.0"}, &mcp.ClientOptions{MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true}})
+	// Every client can be asked. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
+	client := mcp.NewClient(&mcp.Implementation{Name: "holon-go", Version: "0.1.0"}, &mcp.ClientOptions{
+		Capabilities:   &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{Form: &mcp.FormElicitationCapabilities{}, URL: &mcp.URLElicitationCapabilities{}}},
+		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
+	})
 	return client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint:             endpoint,
 		HTTPClient:           &http.Client{Transport: peerTransport{scope: scope, endpoint: endpoint}, CheckRedirect: noRedirect},
