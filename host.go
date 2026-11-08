@@ -149,5 +149,5 @@ func credentialHeader(name string) bool {
 }
 
 func noRedirect(*http.Request, []*http.Request) error {
-	return errors.New("holon broker redirects are not allowed")
+	return errors.New("MCP endpoint redirects are not allowed")
 }

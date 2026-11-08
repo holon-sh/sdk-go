@@ -11,16 +11,25 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/oauth2"
 )
 
 func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
-	scope, ok := ctx.Value(scopeKey{}).(*requestScope)
-	if !ok || scope.ctx.Err() != nil {
-		return nil, errors.New("dependency calls require an active incoming Holon request")
-	}
-	endpoint := os.Getenv(strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_MCP_URL")
-	if name == "" || endpoint != scope.host+"/peer/"+url.PathEscape(name) {
-		return nil, fmt.Errorf("dependency %q is not bound to the Holon host", name)
+	prefix := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+	endpoint := os.Getenv(prefix + "_MCP_URL")
+	httpClient := &http.Client{CheckRedirect: noRedirect}
+	switch scope, ok := ctx.Value(scopeKey{}).(*requestScope); {
+	case ok:
+		if name == "" || endpoint != scope.host+"/peer/"+url.PathEscape(name) {
+			return nil, fmt.Errorf("dependency %q is not bound to the Holon host", name)
+		}
+		httpClient.Transport = peerTransport{scope: scope, endpoint: endpoint}
+	case endpoint == "":
+		return nil, fmt.Errorf("dependency %q is not bound: set %s_MCP_URL", name, prefix)
+	default:
+		if token := os.Getenv(prefix + "_MCP_TOKEN"); token != "" {
+			httpClient.Transport = &oauth2.Transport{Source: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})}
+		}
 	}
 	// Every client can be asked. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
 	client := mcp.NewClient(&mcp.Implementation{Name: "holon-go", Version: "0.1.0"}, &mcp.ClientOptions{
@@ -29,7 +38,7 @@ func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 	})
 	return client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint:             endpoint,
-		HTTPClient:           &http.Client{Transport: peerTransport{scope: scope, endpoint: endpoint}, CheckRedirect: noRedirect},
+		HTTPClient:           httpClient,
 		DisableStandaloneSSE: true,
 		MaxRetries:           -1,
 	}, nil)

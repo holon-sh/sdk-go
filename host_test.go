@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,6 +52,7 @@ func TestHostedRequests(t *testing.T) {
 	peerStarted := make(chan struct{}, 2)
 	peerRelease := make(chan struct{}, 2)
 	peerCancelled := make(chan error, 1)
+	var authorization atomic.Pointer[string]
 	peer := mcp.NewServer(&mcp.Implementation{Name: "peer", Version: "1"}, nil)
 	mcp.AddTool(peer, &mcp.Tool{Name: "read"}, func(ctx context.Context, r *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, inspection, error) {
 		if r.Extra.Header.Get("Authorization") != "" || r.Extra.Header.Get("X-Holon-Context") != "" {
@@ -97,6 +99,8 @@ func TestHostedRequests(t *testing.T) {
 				})
 			}
 		case r.URL.Path == "/broker/peer/peer":
+			header := r.Header.Get("Authorization")
+			authorization.Store(&header)
 			peerHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
@@ -186,7 +190,7 @@ func TestHostedRequests(t *testing.T) {
 		t.Fatalf("dependency contracts: %v %s", err, data)
 	}
 	for range 2 {
-		if _, err := holon.Connect(receive(t, retained), "peer"); err == nil || !strings.Contains(err.Error(), "require an active incoming Holon request") {
+		if _, err := holon.Connect(receive(t, retained), "peer"); err == nil || !strings.Contains(err.Error(), "outside its active Holon scope") {
 			t.Errorf("retained authority: %v", err)
 		}
 	}
@@ -226,5 +230,13 @@ func TestHostedRequests(t *testing.T) {
 	if response, err := http.DefaultClient.Do(request); err == nil {
 		response.Body.Close()
 		t.Error("listener survived shutdown")
+	}
+	dependency := &holon.Dependency{Name: "peer", Tools: map[string]holon.ToolSchema{"contract": {Input: `{"type":"object"}`}}}
+	for token, want := range map[string]string{"": "", "secret": "Bearer secret"} {
+		t.Setenv("PEER_MCP_TOKEN", token)
+		result, err := dependency.CallTool(t.Context(), &mcp.CallToolParams{Name: "contract", Arguments: map[string]any{"id": "standalone"}})
+		if err != nil || result.IsError || *authorization.Load() != want {
+			t.Errorf("standalone call with token %q: %+v, %v", token, result, err)
+		}
 	}
 }
