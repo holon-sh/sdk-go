@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/oauth2"
 )
 
 // Connect opens an MCP client session to the dependency called name.
@@ -35,7 +36,7 @@ func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 		return nil, fmt.Errorf("dependency %q is not bound: set %sURL", name, variable)
 	default:
 		if token := os.Getenv(variable + "TOKEN"); token != "" {
-			httpClient.Transport = bearerTransport(token)
+			httpClient.Transport = &oauth2.Transport{Source: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})}
 		}
 	}
 	// Every client can be asked. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
@@ -49,15 +50,6 @@ func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 		DisableStandaloneSSE: true,
 		MaxRetries:           -1,
 	}, nil)
-}
-
-// bearerTransport sends a token to the endpoint. Redirects are refused, so it reaches no other origin.
-type bearerTransport string
-
-func (token bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	r = r.Clone(r.Context())
-	r.Header.Set("Authorization", "Bearer "+string(token))
-	return http.DefaultTransport.RoundTrip(r)
 }
 
 type peerTransport struct {
