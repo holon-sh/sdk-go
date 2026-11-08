@@ -189,9 +189,9 @@ func TestHostedRequests(t *testing.T) {
 		data, _ := json.Marshal(result)
 		t.Fatalf("dependency contracts: %v %s", err, data)
 	}
-	for _, outside := range []context.Context{receive(t, retained), receive(t, retained), t.Context()} {
-		if _, err := holon.Connect(outside, "peer"); err == nil || !strings.Contains(err.Error(), "require an active incoming Holon request") {
-			t.Errorf("call outside a request: %v", err)
+	for range 2 {
+		if _, err := holon.Connect(receive(t, retained), "peer"); err == nil || !strings.Contains(err.Error(), "require an active incoming Holon request") {
+			t.Errorf("retained authority: %v", err)
 		}
 	}
 	for _, scope := range []string{"", "unknown", "malformed", "expired"} {
@@ -231,8 +231,7 @@ func TestHostedRequests(t *testing.T) {
 		response.Body.Close()
 		t.Error("listener survived shutdown")
 	}
-	// Without a host, the client dials PEER_MCP_URL itself and presents PEER_MCP_TOKEN.
-	t.Setenv("HOLON_HOST_URL", "")
+	// Outside a request, the client dials PEER_MCP_URL itself and presents PEER_MCP_TOKEN.
 	dependency := &holon.Dependency{Name: "peer", Tools: map[string]holon.ToolSchema{"contract": {Input: `{"type":"object"}`}}}
 	for token, want := range map[string]string{"": "", "secret": "Bearer secret"} {
 		t.Setenv("PEER_MCP_TOKEN", token)

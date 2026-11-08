@@ -14,18 +14,16 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// Connect opens an MCP client session to the dependency called name.
-// Inside a request served by [Serve], the session goes through the Holon host with that request's authority.
-// Outside a host, <NAME>_MCP_URL names the endpoint and <NAME>_MCP_TOKEN, if set, is sent to it as a bearer token.
+// Connect opens an MCP client session to the dependency called name, at the endpoint <NAME>_MCP_URL.
+// Inside a request served by [Serve], the session carries that request's authority through the Holon host.
+// Outside one, <NAME>_MCP_TOKEN, if set, is sent as a bearer token.
 func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
-	variable := strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_MCP_"
-	endpoint := os.Getenv(variable + "URL")
+	prefix := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+	endpoint := os.Getenv(prefix + "_MCP_URL")
 	httpClient := &http.Client{CheckRedirect: noRedirect}
-	scope, ok := ctx.Value(scopeKey{}).(*requestScope)
-	switch {
-	case ok || os.Getenv("HOLON_HOST_URL") != "":
-		// A hosted program only calls dependencies on behalf of an incoming request.
-		if !ok || scope.ctx.Err() != nil {
+	switch scope, ok := ctx.Value(scopeKey{}).(*requestScope); {
+	case ok:
+		if scope.ctx.Err() != nil {
 			return nil, errors.New("dependency calls require an active incoming Holon request")
 		}
 		if name == "" || endpoint != scope.host+"/peer/"+url.PathEscape(name) {
@@ -33,9 +31,9 @@ func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 		}
 		httpClient.Transport = peerTransport{scope: scope, endpoint: endpoint}
 	case endpoint == "":
-		return nil, fmt.Errorf("dependency %q is not bound: set %sURL", name, variable)
+		return nil, fmt.Errorf("dependency %q is not bound: set %s_MCP_URL", name, prefix)
 	default:
-		if token := os.Getenv(variable + "TOKEN"); token != "" {
+		if token := os.Getenv(prefix + "_MCP_TOKEN"); token != "" {
 			httpClient.Transport = &oauth2.Transport{Source: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})}
 		}
 	}
