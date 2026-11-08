@@ -231,7 +231,6 @@ func TestHostedRequests(t *testing.T) {
 		response.Body.Close()
 		t.Error("listener survived shutdown")
 	}
-	// Outside a request, the client dials PEER_MCP_URL itself and presents PEER_MCP_TOKEN.
 	dependency := &holon.Dependency{Name: "peer", Tools: map[string]holon.ToolSchema{"contract": {Input: `{"type":"object"}`}}}
 	for token, want := range map[string]string{"": "", "secret": "Bearer secret"} {
 		t.Setenv("PEER_MCP_TOKEN", token)

@@ -14,9 +14,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// Connect opens an MCP client session to the dependency called name, at the endpoint <NAME>_MCP_URL.
-// Inside a request served by [Serve], the session carries that request's authority through the Holon host.
-// Outside one, <NAME>_MCP_TOKEN, if set, is sent as a bearer token.
 func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 	prefix := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 	endpoint := os.Getenv(prefix + "_MCP_URL")
