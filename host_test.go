@@ -190,7 +190,7 @@ func TestHostedRequests(t *testing.T) {
 		t.Fatalf("dependency contracts: %v %s", err, data)
 	}
 	for range 2 {
-		if _, err := holon.Connect(receive(t, retained), "peer"); err == nil || !strings.Contains(err.Error(), "require an active incoming Holon request") {
+		if _, err := holon.Connect(receive(t, retained), "peer"); err == nil || !strings.Contains(err.Error(), "outside its active Holon scope") {
 			t.Errorf("retained authority: %v", err)
 		}
 	}

@@ -23,9 +23,6 @@ func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 	httpClient := &http.Client{CheckRedirect: noRedirect}
 	switch scope, ok := ctx.Value(scopeKey{}).(*requestScope); {
 	case ok:
-		if scope.ctx.Err() != nil {
-			return nil, errors.New("dependency calls require an active incoming Holon request")
-		}
 		if name == "" || endpoint != scope.host+"/peer/"+url.PathEscape(name) {
 			return nil, fmt.Errorf("dependency %q is not bound to the Holon host", name)
 		}
