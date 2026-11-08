@@ -43,6 +43,12 @@ func greet(ctx context.Context, name string) (string, error) {
 
 Arguments are validated before sending; the result is validated against the output schema and returned.
 
+Inside a server run by `holon.Serve`, the call goes through the Holon host with the request's identity. Anywhere else, `BAR_MCP_URL` names the endpoint and `BAR_MCP_TOKEN`, if set, is sent to it as a bearer token:
+
+```sh
+BAR_MCP_URL=https://bar.example.com/mcp BAR_MCP_TOKEN=... go run .
+```
+
 </details>
 
 <details open>

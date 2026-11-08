@@ -13,14 +13,30 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// Connect opens an MCP client session to the dependency called name.
+// Inside a request served by [Serve], the session goes through the Holon host with that request's authority.
+// Outside a host, <NAME>_MCP_URL names the endpoint and <NAME>_MCP_TOKEN, if set, is sent to it as a bearer token.
 func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
+	variable := strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_MCP_"
+	endpoint := os.Getenv(variable + "URL")
+	httpClient := &http.Client{CheckRedirect: noRedirect}
 	scope, ok := ctx.Value(scopeKey{}).(*requestScope)
-	if !ok || scope.ctx.Err() != nil {
-		return nil, errors.New("dependency calls require an active incoming Holon request")
-	}
-	endpoint := os.Getenv(strings.ToUpper(strings.ReplaceAll(name, "-", "_")) + "_MCP_URL")
-	if name == "" || endpoint != scope.host+"/peer/"+url.PathEscape(name) {
-		return nil, fmt.Errorf("dependency %q is not bound to the Holon host", name)
+	switch {
+	case ok || os.Getenv("HOLON_HOST_URL") != "":
+		// A hosted program only calls dependencies on behalf of an incoming request.
+		if !ok || scope.ctx.Err() != nil {
+			return nil, errors.New("dependency calls require an active incoming Holon request")
+		}
+		if name == "" || endpoint != scope.host+"/peer/"+url.PathEscape(name) {
+			return nil, fmt.Errorf("dependency %q is not bound to the Holon host", name)
+		}
+		httpClient.Transport = peerTransport{scope: scope, endpoint: endpoint}
+	case endpoint == "":
+		return nil, fmt.Errorf("dependency %q is not bound: set %sURL", name, variable)
+	default:
+		if token := os.Getenv(variable + "TOKEN"); token != "" {
+			httpClient.Transport = bearerTransport(token)
+		}
 	}
 	// Every client can be asked. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
 	client := mcp.NewClient(&mcp.Implementation{Name: "holon-go", Version: "0.1.0"}, &mcp.ClientOptions{
@@ -29,10 +45,19 @@ func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 	})
 	return client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint:             endpoint,
-		HTTPClient:           &http.Client{Transport: peerTransport{scope: scope, endpoint: endpoint}, CheckRedirect: noRedirect},
+		HTTPClient:           httpClient,
 		DisableStandaloneSSE: true,
 		MaxRetries:           -1,
 	}, nil)
+}
+
+// bearerTransport sends a token to the endpoint. Redirects are refused, so it reaches no other origin.
+type bearerTransport string
+
+func (token bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+string(token))
+	return http.DefaultTransport.RoundTrip(r)
 }
 
 type peerTransport struct {
