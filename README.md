@@ -4,6 +4,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/holon-sh/sdk-go.svg)](https://pkg.go.dev/github.com/holon-sh/sdk-go)
 [![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go)](https://go.dev/doc/install)
 [![Apache 2.0 License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://holon-labs.dev/discord/)
 
 This repository contains the Go runtime for [`holon`](https://github.com/holon-sh/cli).
 
@@ -104,3 +105,7 @@ err := holon.Serve(ctx, server, holon.WithFrontend("dist/web"))
 ```
 
 Inside a tool handler, `holon.Context(ctx).Principal` is the admitted caller, or nil for anonymous requests. `holon.Connect(ctx, "bar")` opens an MCP client session to a declared dependency for the current request.
+
+## Community
+
+Ask questions and share what you're building on the [Holon Discord](https://holon-labs.dev/discord/).
