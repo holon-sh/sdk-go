@@ -73,11 +73,15 @@ func TestHostedRequests(t *testing.T) {
 		switch {
 		case r.URL.Path == "/broker/ready":
 			var registration struct {
-				Port int `json:"port"`
+				Port     int    `json:"port"`
+				Frontend string `json:"frontend"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&registration); err != nil {
 				t.Error(err)
 				return
+			}
+			if registration.Frontend != "dist/web" {
+				t.Errorf("frontend = %q, want dist/web", registration.Frontend)
 			}
 			ready <- fmt.Sprintf("http://127.0.0.1:%d/mcp", registration.Port)
 			w.WriteHeader(http.StatusNoContent)
@@ -144,7 +148,7 @@ func TestHostedRequests(t *testing.T) {
 	})
 	addDependencyChecks(peer, app)
 	done := make(chan error, 1)
-	go func() { done <- holon.Serve(ctx, app) }()
+	go func() { done <- holon.Serve(ctx, app, holon.WithFrontend("dist/web")) }()
 	endpoint := receive(t, ready)
 	connect := func(scope string) *mcp.ClientSession {
 		t.Helper()
