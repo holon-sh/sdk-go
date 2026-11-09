@@ -1,6 +1,7 @@
 package holon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,7 +58,22 @@ type identity struct {
 	} `json:"extra"`
 }
 
-func Serve(ctx context.Context, server *mcp.Server) error {
+// Option configures Serve.
+type Option func(*options)
+
+type options struct{ frontend string }
+
+// WithFrontend has the host serve dir, a directory inside the application such as a built view, as
+// the application's page. A relative dir is resolved against the application's directory.
+func WithFrontend(dir string) Option {
+	return func(o *options) { o.frontend = dir }
+}
+
+func Serve(ctx context.Context, server *mcp.Server, opts ...Option) error {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
 	host := os.Getenv("HOLON_HOST_URL")
 	u, err := url.Parse(host)
 	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" ||
@@ -125,8 +141,14 @@ func Serve(ctx context.Context, server *mcp.Server) error {
 	defer app.Close()
 	done := make(chan error, 1)
 	go func() { done <- app.Serve(listener) }()
-	payload := fmt.Sprintf(`{"port":%d}`, listener.Addr().(*net.TCPAddr).Port)
-	request, _ := http.NewRequestWithContext(ctx, http.MethodPost, host+"/ready", strings.NewReader(payload))
+	payload, err := json.Marshal(struct {
+		Port     int    `json:"port"`
+		Frontend string `json:"frontend,omitempty"`
+	}{listener.Addr().(*net.TCPAddr).Port, o.frontend})
+	if err != nil {
+		return err
+	}
+	request, _ := http.NewRequestWithContext(ctx, http.MethodPost, host+"/ready", bytes.NewReader(payload))
 	request.Header.Set("Content-Type", "application/json")
 	response, err := control.Do(request)
 	if err != nil {

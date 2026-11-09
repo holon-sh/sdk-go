@@ -97,4 +97,10 @@ server := mcp.NewServer(&mcp.Implementation{Name: "foo", Version: "1.0.0"}, nil)
 err := holon.Serve(ctx, server)
 ```
 
+To serve a built view as the app's page, name its directory, relative to the application:
+
+```go
+err := holon.Serve(ctx, server, holon.WithFrontend("dist/web"))
+```
+
 Inside a tool handler, `holon.Context(ctx).Principal` is the admitted caller, or nil for anonymous requests. `holon.Connect(ctx, "bar")` opens an MCP client session to a declared dependency for the current request.
