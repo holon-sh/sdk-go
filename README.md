@@ -27,8 +27,7 @@ go test ./...
 
 Clients are generated into the project's `holon/` package.
 
-<details open>
-<summary><h3>Call a tool</h3></summary>
+### Call a tool
 
 ```go
 import apps "example.com/foo/holon"
@@ -42,12 +41,7 @@ func greet(ctx context.Context, name string) (string, error) {
 }
 ```
 
-Arguments are validated before sending; the result is validated against the output schema and returned.
-
-</details>
-
-<details open>
-<summary><h3>Handle errors</h3></summary>
+### Handle errors
 
 ```go
 var failure *holon.ToolCallError
@@ -57,10 +51,7 @@ if errors.As(err, &failure) {
 }
 ```
 
-</details>
-
-<details open>
-<summary><h3>Read the whole result</h3></summary>
+### Read the whole result
 
 `CallTool` returns the full MCP result instead of an error:
 
@@ -71,10 +62,7 @@ result, err := apps.Bar.CallTool(ctx, &mcp.CallToolParams{
 })
 ```
 
-</details>
-
-<details open>
-<summary><h3>Answer a server's question</h3></summary>
+### Answer a server's question
 
 A tool can stop and ask for input through an [MCP elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation). Pass a handler to answer in place:
 
@@ -85,20 +73,18 @@ result, err := apps.Bar.CallTool(ctx, params, func(ctx context.Context, question
 })
 ```
 
-Without a handler, the question arrives on `ToolCallError.Result`, or as an `input_required` result from `CallTool`. To answer later, for example in another request, call again with `InputResponses` and `RequestState`.
-
-</details>
+Without a handler, the question arrives on `ToolCallError.Result`, or as an `input_required` result from `CallTool`.
 
 ## Serve under Holon
 
-Register typed tools with the [official MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) and pass the server to `holon.Serve`. Run the executable under Holon's host, which supplies `HOLON_HOST_URL`.
+Pass a server from the [official MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) to `holon.Serve`:
 
 ```go
 server := mcp.NewServer(&mcp.Implementation{Name: "foo", Version: "1.0.0"}, nil)
 err := holon.Serve(ctx, server)
 ```
 
-To serve a built view as the app's page, name its directory, relative to the application:
+To serve a built view as the app's page:
 
 ```go
 err := holon.Serve(ctx, server, holon.WithFrontend("dist/web"))
