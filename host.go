@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/holon-sh/protocol"
+	"github.com/holon-sh/protocol/runtimecontract"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -56,17 +58,17 @@ func Context(ctx context.Context) RequestContext {
 }
 
 // The forms of the headers Holon's waypoint sets: a context is a compact JWS, whose payload segment is matched, and a
-// caller is the SPIFFE ID of an app of the session.
+// caller is an app of the session, as <session>/<app>.
 var (
 	contextForm = regexp.MustCompile(`^[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$`)
-	callerForm  = regexp.MustCompile(`^spiffe://cluster\.local/ns/([^/]+)/sa/([^/]+)$`)
+	callerForm  = regexp.MustCompile(`^([^/]+)/([^/]+)$`)
 )
 
 // admit reads the caller from the headers Holon's waypoint sets once it has verified the context's signature and
 // expiry, and reports false when they are malformed. The waypoint names the calling app of the session, a lifecycle
 // hook's job as its app.
 func admit(r *http.Request) (*requestScope, bool) {
-	contexts, callers := r.Header.Values("X-Holon-Context"), r.Header.Values("X-Holon-Caller")
+	contexts, callers := r.Header.Values(runtimecontract.ContextHeader), r.Header.Values(runtimecontract.CallerHeader)
 	if len(contexts) > 1 || len(callers) > 1 {
 		return nil, false
 	}
@@ -130,7 +132,7 @@ func Serve(ctx context.Context, server *mcp.Server, opts ...Option) error {
 	for _, opt := range opts {
 		opt(&o)
 	}
-	platform := os.Getenv("HOLON_PLATFORM") == "1"
+	platform := os.Getenv(protocol.PlatformEnv) == "1"
 	terminated, stop := signal.NotifyContext(ctx, syscall.SIGTERM)
 	defer stop()
 	address := net.JoinHostPort(cmp.Or(os.Getenv("HOST"), "127.0.0.1"), cmp.Or(os.Getenv("PORT"), "3000"))
@@ -184,7 +186,7 @@ func Serve(ctx context.Context, server *mcp.Server, opts ...Option) error {
 }
 
 func credentialHeader(name string) bool {
-	return strings.EqualFold(name, "Authorization") || strings.HasPrefix(strings.ToLower(name), "x-holon-")
+	return strings.EqualFold(name, protocol.HeaderAuthorization) || strings.HasPrefix(strings.ToLower(name), "x-holon-")
 }
 
 // frontend serves the file at the request's path in directory, or a directory's index.html. Like Holon, it serves

@@ -169,7 +169,7 @@ func TestRequestContext(t *testing.T) {
 		return nil, inspection{Context: string(identity), Leaked: leaked, Peer: peer}, err
 	})
 	const (
-		reporter = "spiffe://cluster.local/ns/session/sa/reporter"
+		reporter = "session/reporter"
 	)
 	person := `{"exp":4102444800,"aud":["https://holon.example"],"principal":{"iss":"issuer","sub":"user","client_id":"client",` +
 		`"scope":"read write","claims":{"email":"ada@example.com","custom":{"values":[1,null]}},"act":{"sub":"agent"}}}`
@@ -188,7 +188,7 @@ func TestRequestContext(t *testing.T) {
 		{"signed-out person", "1", "/mcp", token(`{"exp":4102444800,"aud":"https://holon.example"}`), "", anonymous},
 		{"app outside a request", "1", "/mcp", "", reporter, `{"principal":null,"caller":` + reporting + `}`},
 		{"lifecycle hook job, named as its app", "1", "/mcp", token(`{"exp":4102444800,"aud":"https://holon.example","hook":{"app":"accounts","job":"install-accounts"}}`),
-			"spiffe://cluster.local/ns/session/sa/accounts", `{"principal":null,"caller":{"app":"accounts","session":"session"}}`},
+			"session/accounts", `{"principal":null,"caller":{"app":"accounts","session":"session"}}`},
 		{"16 KiB context", "1", "/mcp", large, "", `{"principal":` + strings.Replace(user, `"subject":"user"`, `"subject":"`+subject+`"`, 1) + `,"caller":null}`},
 		{"outside Holon", "", "/mcp", token(person), reporter, anonymous},
 	} {
@@ -229,7 +229,7 @@ func TestRequestContext(t *testing.T) {
 		for name, header := range map[string]http.Header{
 			"two contexts":                {"X-Holon-Context": {token(person), token(person)}},
 			"two callers":                 {"X-Holon-Caller": {reporter, reporter}},
-			"caller outside the mesh":     {"X-Holon-Caller": {"spiffe://holon.example/sa/reporter"}},
+			"caller without its session":  {"X-Holon-Caller": {"reporter"}},
 			"context that is not a JWS":   {"X-Holon-Context": {"header.claims"}},
 			"padded payload":              {"X-Holon-Context": {"e30.e30=.signature"}},
 			"payload that is not JSON":    {"X-Holon-Context": {token("person")}},

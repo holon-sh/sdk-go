@@ -3,6 +3,7 @@ module github.com/holon-sh/sdk-go
 go 1.27.0
 
 require (
+	github.com/holon-sh/protocol v0.0.1-dev.13
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 )
