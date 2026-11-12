@@ -37,7 +37,7 @@ who := holon.Context(ctx)
 // who.Caller is the app of the same session that called, or nil when a person called directly.
 ```
 
-Inside Holon, where `HOLON_PLATFORM=1`, both come from the headers Holon's mesh sets once it has verified the caller. Anywhere else every request is anonymous. Either way, a tool never sees `X-Holon-*` or `Authorization` headers. A dependency called while the request lasts acts for the same user. One called after the request ends, such as from a goroutine the tool started, acts as the app.
+Inside Holon, where `HOLON_PLATFORM=1`, both come from the headers Holon's mesh sets once it has verified the caller. Anywhere else every request is anonymous. A request whose Holon headers are malformed is answered `400 Bad Request` before any app code runs. Either way, a tool never sees `X-Holon-*` or `Authorization` headers. A dependency called while the request lasts acts for the same user. One called after the request ends, such as from a goroutine the tool started, acts as the app.
 
 ## Invoking MCP Servers
 

@@ -191,7 +191,6 @@ func TestRequestContext(t *testing.T) {
 		{"app outside a request", "1", "/mcp", "", reporter, `{"principal":null,"caller":` + reporting + `}`},
 		{"lifecycle hook job, named as its app", "1", "/mcp", token(`{"exp":4102444800,"aud":"https://holon.example","hook":{"app":"accounts","job":"install-accounts"}}`),
 			"spiffe://cluster.local/ns/session/sa/accounts", `{"principal":null,"caller":{"app":"accounts","session":"session"}}`},
-		{"caller outside the session's mesh", "1", "/mcp", "", "spiffe://holon.example/sa/reporter", anonymous},
 		{"16 KiB context", "1", "/mcp", large, "", `{"principal":` + strings.Replace(user, `"subject":"user"`, `"subject":"`+subject+`"`, 1) + `,"caller":null}`},
 		{"outside Holon", "", "/mcp", token(person), reporter, anonymous},
 	} {
@@ -226,14 +225,22 @@ func TestRequestContext(t *testing.T) {
 			}
 		})
 	}
-	t.Run("refused", func(t *testing.T) {
+	t.Run("malformed", func(t *testing.T) {
 		t.Setenv("HOLON_PLATFORM", "1")
 		origin, _ := serve(t.Context(), t, app)
 		for name, header := range map[string]http.Header{
-			"two contexts":      {"X-Holon-Context": {token(person), token(person)}},
-			"two callers":       {"X-Holon-Caller": {reporter, reporter}},
-			"malformed context": {"X-Holon-Context": {"header.claims"}},
-			"non-object actor":  {"X-Holon-Context": {token(strings.Replace(person, `{"sub":"agent"}`, `[{"sub":"agent"}]`, 1))}},
+			"two contexts":                {"X-Holon-Context": {token(person), token(person)}},
+			"two callers":                 {"X-Holon-Caller": {reporter, reporter}},
+			"caller outside the mesh":     {"X-Holon-Caller": {"spiffe://holon.example/sa/reporter"}},
+			"context that is not a JWS":   {"X-Holon-Context": {"header.claims"}},
+			"padded payload":              {"X-Holon-Context": {"e30.e30=.signature"}},
+			"payload that is not JSON":    {"X-Holon-Context": {token("person")}},
+			"payload that is an array":    {"X-Holon-Context": {token("[]")}},
+			"payload that is null":        {"X-Holon-Context": {token("null")}},
+			"principal that is a string":  {"X-Holon-Context": {token(`{"principal":"user"}`)}},
+			"issuer that is a number":     {"X-Holon-Context": {token(`{"principal":{"iss":1}}`)}},
+			"claims that are an array":    {"X-Holon-Context": {token(`{"principal":{"claims":[]}}`)}},
+			"actor that is not an object": {"X-Holon-Context": {token(strings.Replace(person, `{"sub":"agent"}`, `[{"sub":"agent"}]`, 1))}},
 		} {
 			request, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, origin+"/mcp", strings.NewReader(`{}`))
 			request.Header = header
@@ -241,9 +248,10 @@ func TestRequestContext(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			body, _ := io.ReadAll(response.Body)
 			response.Body.Close()
-			if response.StatusCode != http.StatusForbidden {
-				t.Errorf("%s: got %d", name, response.StatusCode)
+			if response.StatusCode != http.StatusBadRequest || string(body) != "Malformed Holon context\n" {
+				t.Errorf("%s: got %d %q", name, response.StatusCode, body)
 			}
 		}
 	})

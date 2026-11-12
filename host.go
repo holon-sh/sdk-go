@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -54,13 +55,22 @@ func Context(ctx context.Context) RequestContext {
 	return RequestContext{}
 }
 
-// admit reads the caller from the headers Holon's waypoint sets once it has verified the context's signature and expiry.
+// The forms of the headers Holon's waypoint sets: a context is a compact JWS, whose payload segment is matched, and a
+// caller is the SPIFFE ID of an app of the session.
+var (
+	contextForm = regexp.MustCompile(`^[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$`)
+	callerForm  = regexp.MustCompile(`^spiffe://cluster\.local/ns/([^/]+)/sa/([^/]+)$`)
+)
+
+// admit reads the caller from the headers Holon's waypoint sets once it has verified the context's signature and
+// expiry, and reports false when they are malformed. The waypoint names the calling app of the session, a lifecycle
+// hook's job as its app.
 func admit(r *http.Request) (*requestScope, bool) {
 	contexts, callers := r.Header.Values("X-Holon-Context"), r.Header.Values("X-Holon-Caller")
 	if len(contexts) > 1 || len(callers) > 1 {
 		return nil, false
 	}
-	var claims struct {
+	var claims *struct {
 		Principal *struct {
 			Issuer   string                     `json:"iss"`
 			Subject  string                     `json:"sub"`
@@ -73,23 +83,24 @@ func admit(r *http.Request) (*requestScope, bool) {
 	scope := &requestScope{ctx: r.Context()}
 	if len(contexts) == 1 {
 		scope.token = contexts[0]
-		parts := strings.Split(scope.token, ".")
-		if len(parts) != 3 {
+		form := contextForm.FindStringSubmatch(scope.token)
+		if form == nil {
 			return nil, false
 		}
-		payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-		if err != nil || json.Unmarshal(payload, &claims) != nil {
+		payload, err := base64.RawURLEncoding.DecodeString(form[1])
+		if err != nil || json.Unmarshal(payload, &claims) != nil || claims == nil {
 			return nil, false
 		}
 	}
-	// The waypoint names the calling app of the session, a lifecycle hook's job as its app.
 	if len(callers) == 1 {
-		namespaced, inCluster := strings.CutPrefix(callers[0], "spiffe://cluster.local/ns/")
-		if session, app, named := strings.Cut(namespaced, "/sa/"); inCluster && named {
-			scope.identity.Caller = &Caller{App: app, Session: session}
+		caller := callerForm.FindStringSubmatch(callers[0])
+		if caller == nil {
+			return nil, false
 		}
+		scope.identity.Caller = &Caller{App: caller[2], Session: caller[1]}
 	}
-	if p := claims.Principal; p != nil {
+	if claims != nil && claims.Principal != nil {
+		p := claims.Principal
 		scope.identity.Principal = &Principal{
 			Issuer: p.Issuer, Subject: p.Subject, ClientID: p.ClientID, Claims: p.Claims,
 			Scopes: strings.FieldsFunc(p.Scope, func(char rune) bool { return char == ' ' }),
@@ -140,8 +151,9 @@ func Serve(ctx context.Context, server *mcp.Server, opts ...Option) error {
 				scope := &requestScope{ctx: r.Context()}
 				if platform {
 					var ok bool
+					// A context the waypoint could not have sent is a malformed request (RFC 9110 §15.5.1).
 					if scope, ok = admit(r); !ok {
-						http.Error(w, "Invalid platform request context", http.StatusForbidden)
+						http.Error(w, "Malformed Holon context", http.StatusBadRequest)
 						return
 					}
 				}
