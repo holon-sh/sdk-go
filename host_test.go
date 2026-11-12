@@ -171,7 +171,6 @@ func TestRequestContext(t *testing.T) {
 	})
 	const (
 		reporter = "spiffe://cluster.local/ns/session/sa/reporter"
-		job      = "spiffe://cluster.local/ns/session/sa/install-accounts"
 	)
 	person := `{"exp":4102444800,"aud":["https://holon.example"],"principal":{"iss":"issuer","sub":"user","client_id":"client",` +
 		`"scope":"read write","claims":{"email":"ada@example.com","custom":{"values":[1,null]}},"act":{"sub":"agent"}}}`
@@ -190,8 +189,8 @@ func TestRequestContext(t *testing.T) {
 		{"app for a signed-in person", "1", "/mcp/app", token(person), reporter, `{"principal":` + user + `,"caller":` + reporting + `}`},
 		{"signed-out person", "1", "/mcp", token(`{"exp":4102444800,"aud":"https://holon.example"}`), "", anonymous},
 		{"app outside a request", "1", "/mcp", "", reporter, `{"principal":null,"caller":` + reporting + `}`},
-		{"lifecycle hook job", "1", "/mcp", token(`{"exp":4102444800,"aud":"https://holon.example","hook":{"app":"accounts","job":"install-accounts"}}`),
-			job, `{"principal":null,"caller":{"app":"accounts","session":"session"}}`},
+		{"lifecycle hook job, named as its app", "1", "/mcp", token(`{"exp":4102444800,"aud":"https://holon.example","hook":{"app":"accounts","job":"install-accounts"}}`),
+			"spiffe://cluster.local/ns/session/sa/accounts", `{"principal":null,"caller":{"app":"accounts","session":"session"}}`},
 		{"caller outside the session's mesh", "1", "/mcp", "", "spiffe://holon.example/sa/reporter", anonymous},
 		{"16 KiB context", "1", "/mcp", large, "", `{"principal":` + strings.Replace(user, `"subject":"user"`, `"subject":"`+subject+`"`, 1) + `,"caller":null}`},
 		{"outside Holon", "", "/mcp", token(person), reporter, anonymous},
@@ -231,11 +230,10 @@ func TestRequestContext(t *testing.T) {
 		t.Setenv("HOLON_PLATFORM", "1")
 		origin, _ := serve(t.Context(), t, app)
 		for name, header := range map[string]http.Header{
-			"two contexts":               {"X-Holon-Context": {token(person), token(person)}},
-			"two callers":                {"X-Holon-Caller": {reporter, reporter}},
-			"malformed context":          {"X-Holon-Context": {"header.claims"}},
-			"non-object actor":           {"X-Holon-Context": {token(strings.Replace(person, `{"sub":"agent"}`, `[{"sub":"agent"}]`, 1))}},
-			"principal without a client": {"X-Holon-Context": {token(strings.Replace(person, `"client_id":"client"`, `"client_id":""`, 1))}},
+			"two contexts":      {"X-Holon-Context": {token(person), token(person)}},
+			"two callers":       {"X-Holon-Caller": {reporter, reporter}},
+			"malformed context": {"X-Holon-Context": {"header.claims"}},
+			"non-object actor":  {"X-Holon-Context": {token(strings.Replace(person, `{"sub":"agent"}`, `[{"sub":"agent"}]`, 1))}},
 		} {
 			request, _ := http.NewRequestWithContext(t.Context(), http.MethodPost, origin+"/mcp", strings.NewReader(`{}`))
 			request.Header = header

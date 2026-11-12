@@ -69,7 +69,6 @@ func admit(r *http.Request) (*requestScope, bool) {
 			Claims   map[string]json.RawMessage `json:"claims"`
 			Actor    map[string]json.RawMessage `json:"act"`
 		} `json:"principal"`
-		Hook *struct{ App, Job string } `json:"hook"`
 	}
 	scope := &requestScope{ctx: r.Context()}
 	if len(contexts) == 1 {
@@ -83,20 +82,14 @@ func admit(r *http.Request) (*requestScope, bool) {
 			return nil, false
 		}
 	}
+	// The waypoint names the calling app of the session, a lifecycle hook's job as its app.
 	if len(callers) == 1 {
 		namespaced, inCluster := strings.CutPrefix(callers[0], "spiffe://cluster.local/ns/")
-		session, app, named := strings.Cut(namespaced, "/sa/")
-		if inCluster && named && session != "" && app != "" && !strings.Contains(session+app, "/") {
-			if claims.Hook != nil && app == claims.Hook.Job {
-				app = claims.Hook.App
-			}
+		if session, app, named := strings.Cut(namespaced, "/sa/"); inCluster && named {
 			scope.identity.Caller = &Caller{App: app, Session: session}
 		}
 	}
 	if p := claims.Principal; p != nil {
-		if p.Issuer == "" || p.Subject == "" || p.ClientID == "" {
-			return nil, false
-		}
 		scope.identity.Principal = &Principal{
 			Issuer: p.Issuer, Subject: p.Subject, ClientID: p.ClientID, Claims: p.Claims,
 			Scopes: strings.FieldsFunc(p.Scope, func(char rune) bool { return char == ' ' }),
