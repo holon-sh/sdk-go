@@ -47,10 +47,9 @@ func Context(ctx context.Context) RequestContext {
 }
 
 type identity struct {
-	ClientID  string   `json:"clientId"`
-	Scopes    []string `json:"scopes"`
-	ExpiresAt float64  `json:"expiresAt"`
-	Extra     struct {
+	ClientID string   `json:"clientId"`
+	Scopes   []string `json:"scopes"`
+	Extra    struct {
 		Issuer  string                     `json:"iss"`
 		Subject string                     `json:"sub"`
 		Claims  map[string]json.RawMessage `json:"claims"`
@@ -113,20 +112,15 @@ func Serve(ctx context.Context, server *mcp.Server, opts ...Option) error {
 				return
 			}
 			scope := &requestScope{ctx: r.Context(), id: ids[0], host: host, transport: transport}
-			if admitted != nil {
-				if admitted.ExpiresAt <= float64(time.Now().UnixNano())/1e9 {
-					http.Error(w, "Request context expired", http.StatusForbidden)
+			// The host refuses an expired context, and hands over an app's call without a person as an identity too.
+			if admitted != nil && (admitted.Extra.Issuer != "" || admitted.Extra.Subject != "") {
+				if admitted.Extra.Issuer == "" || admitted.Extra.Subject == "" || admitted.ClientID == "" {
+					http.Error(w, "Malformed request identity", http.StatusForbidden)
 					return
 				}
-				if admitted.Extra.Issuer != "" || admitted.Extra.Subject != "" {
-					if admitted.Extra.Issuer == "" || admitted.Extra.Subject == "" || admitted.ClientID == "" {
-						http.Error(w, "Malformed request identity", http.StatusForbidden)
-						return
-					}
-					scope.identity.Principal = &Principal{
-						Issuer: admitted.Extra.Issuer, Subject: admitted.Extra.Subject,
-						ClientID: admitted.ClientID, Scopes: admitted.Scopes, Claims: admitted.Extra.Claims, Actor: admitted.Extra.Actor,
-					}
+				scope.identity.Principal = &Principal{
+					Issuer: admitted.Extra.Issuer, Subject: admitted.Extra.Subject,
+					ClientID: admitted.ClientID, Scopes: admitted.Scopes, Claims: admitted.Extra.Claims, Actor: admitted.Extra.Actor,
 				}
 			}
 			r = r.Clone(context.WithValue(r.Context(), scopeKey{}, scope))

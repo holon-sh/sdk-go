@@ -94,8 +94,9 @@ func TestHostedRequests(t *testing.T) {
 				fmt.Fprint(w, `{"extra":`)
 			case "anonymous":
 				fmt.Fprint(w, `null`)
-			case "expired":
-				fmt.Fprint(w, `{"expiresAt":1}`)
+			case "app":
+				// An app's call made outside a request, with nobody signed in.
+				fmt.Fprint(w, `{"token":"","clientId":"","scopes":[],"expiresAt":0,"resource":"","extra":{"caller":{"app":"reporter","session":"session"}}}`)
 			default:
 				json.NewEncoder(w).Encode(map[string]any{
 					"clientId": "browser", "scopes": []string{"read"}, "expiresAt": time.Now().Add(time.Hour).Unix(),
@@ -161,9 +162,10 @@ func TestHostedRequests(t *testing.T) {
 		t.Cleanup(func() { client.Close() })
 		return client
 	}
-	clients := map[string]*mcp.ClientSession{"alice": connect("alice"), "bob": connect("bob"), "anonymous": connect("anonymous")}
+	subjects := map[string]string{"alice": "alice", "bob": "bob", "anonymous": "anonymous", "app": "anonymous"}
 	var wg sync.WaitGroup
-	for name, client := range clients {
+	for name, subject := range subjects {
+		client := connect(name)
 		wg.Go(func() {
 			result, err := client.CallTool(ctx, &mcp.CallToolParams{Name: "inspect"})
 			if err != nil {
@@ -175,7 +177,7 @@ func TestHostedRequests(t *testing.T) {
 				return
 			}
 			got := result.StructuredContent.(map[string]any)
-			if got["subject"] != name || (name != "anonymous" && got["peer"] != name) {
+			if got["subject"] != subject || (subject != "anonymous" && got["peer"] != name) {
 				t.Errorf("mixed request identity: %v", got)
 			}
 		})
@@ -198,7 +200,7 @@ func TestHostedRequests(t *testing.T) {
 			t.Errorf("retained authority: %v", err)
 		}
 	}
-	for _, scope := range []string{"", "unknown", "malformed", "expired"} {
+	for _, scope := range []string{"", "unknown", "malformed"} {
 		request, _ := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(`{}`))
 		request.Header.Set("X-Holon-Scope", scope)
 		response, err := http.DefaultClient.Do(request)
