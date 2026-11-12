@@ -130,7 +130,6 @@ func Serve(ctx context.Context, server *mcp.Server, opts ...Option) error {
 	for _, opt := range opts {
 		opt(&o)
 	}
-	// Inside Holon only its waypoint reaches the app, and it replaces every X-Holon- header a client sends.
 	platform := os.Getenv("HOLON_PLATFORM") == "1"
 	terminated, stop := signal.NotifyContext(ctx, syscall.SIGTERM)
 	defer stop()
@@ -180,7 +179,6 @@ func Serve(ctx context.Context, server *mcp.Server, opts ...Option) error {
 	case <-terminated.Done():
 	}
 	stop()
-	// After SIGTERM requests in flight finish, and when ctx ends they end with it.
 	err = app.Shutdown(ctx)
 	return cmp.Or(ctx.Err(), err)
 }
@@ -192,13 +190,11 @@ func credentialHeader(name string) bool {
 // frontend serves the file at the request's path in directory, or a directory's index.html. Like Holon, it serves
 // nothing hidden, however its dot is encoded, and nothing a symlink leads to outside directory.
 func frontend(w http.ResponseWriter, r *http.Request, directory string) {
-	// Localize refuses a name the system would split differently, such as one with a backslash on Windows.
 	name, err := filepath.Localize(cmp.Or(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/"), "/"), "."))
 	if err != nil || strings.Contains("/"+r.URL.Path, "/.") {
 		http.NotFound(w, r)
 		return
 	}
-	// The directory may be built while the application runs, so each request opens it.
 	root, err := os.OpenRoot(directory)
 	if err != nil {
 		http.NotFound(w, r)
@@ -220,7 +216,6 @@ func frontend(w http.ResponseWriter, r *http.Request, directory string) {
 		return
 	}
 	defer file.Close()
-	// Go's MIME lookup gives text types charset=utf-8 already.
 	w.Header().Set("Content-Type", cmp.Or(mime.TypeByExtension(filepath.Ext(name)), "application/octet-stream"))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, name, info.ModTime(), file)

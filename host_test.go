@@ -162,7 +162,6 @@ func TestRequestContext(t *testing.T) {
 		}
 		identity, _ := json.Marshal(holon.Context(ctx))
 		peer, err := holon.Call[credentials](ctx, reader, "read", struct{}{})
-		// A case that failed before taking its context must not block the next.
 		select {
 		case retained <- context.WithoutCancel(ctx):
 		default:
@@ -179,7 +178,6 @@ func TestRequestContext(t *testing.T) {
 	reporting := `{"app":"reporter","session":"session"}`
 	anonymous := `{"principal":null,"caller":null}`
 	subject := strings.Repeat("u", 9000)
-	// The largest context Holon passes on.
 	large := token(strings.Replace(person, `"sub":"user"`, `"sub":"`+subject+`"`, 1))
 	large += strings.Repeat("s", 16<<10-len(large))
 	for _, tc := range []struct {
@@ -297,7 +295,6 @@ func TestFrontend(t *testing.T) {
 		body, _ := io.ReadAll(response.Body)
 		return response, string(body)
 	}
-	// The frontend may be built after the application starts.
 	if response, _ := fetch(http.MethodGet, "/"); response.StatusCode != http.StatusNotFound {
 		t.Fatalf("unbuilt frontend: %d", response.StatusCode)
 	}
@@ -386,7 +383,6 @@ func TestShutdown(t *testing.T) {
 	if err := receive(t, called); err != nil {
 		t.Errorf("call in flight: %v", err)
 	}
-	// Shutdown waits five seconds on a connection that never sent a request, as one the client dialed spare may be.
 	transport.CloseIdleConnections()
 	if err := receive(t, done); err != nil {
 		t.Errorf("SIGTERM: %v", err)

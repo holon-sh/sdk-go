@@ -15,30 +15,6 @@ This repository contains the Go runtime for [`holon`](https://github.com/holon-s
 go get github.com/holon-sh/sdk-go@latest
 ```
 
-## Serving an app
-
-```go
-server := mcp.NewServer(&mcp.Implementation{Name: "foo", Version: "0.1.0"}, nil)
-// Add the app's tools to server.
-if err := holon.Serve(ctx, server, holon.WithFrontend("web/dist")); err != nil {
-	log.Fatal(err)
-}
-```
-
-`Serve` listens on `HOST` and `PORT`, 127.0.0.1:3000 unless they are set. The MCP endpoint is at `/mcp` and `/mcp/<app>`, and the files of the frontend directory are at every other path. Nothing hidden is served, nor anything a symlink leads to outside the directory. On SIGTERM, `Serve` stops accepting connections, lets the requests in flight finish, and returns.
-
-## The caller
-
-`holon.Context` reads who called a tool:
-
-```go
-who := holon.Context(ctx)
-// who.Principal is the user Holon admitted, or nil when the request is anonymous.
-// who.Caller is the app of the same session that called, or nil when a person called directly.
-```
-
-Inside Holon, where `HOLON_PLATFORM=1`, both come from the headers Holon's mesh sets once it has verified the caller. Anywhere else every request is anonymous. A request whose Holon headers are malformed is answered `400 Bad Request` before any app code runs. Either way, a tool never sees `X-Holon-*` or `Authorization` headers. A dependency called while the request lasts acts for the same user. One called after the request ends, such as from a goroutine the tool started, acts as the app.
-
 ## Invoking MCP Servers
 
 Declare dependencies under `sh.holon.requires` in a [`server.json`](https://modelcontextprotocol.io/registry/quickstart#step-4-create-server-json) beside the server, here the public [Hugging Face](https://huggingface.co/docs/hub/en/hf-mcp-server) MCP server:
