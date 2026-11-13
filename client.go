@@ -1,15 +1,20 @@
 package holon
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/holon-sh/protocol"
 	"github.com/holon-sh/protocol/runtimecontract"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -61,5 +66,43 @@ func (t peerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	if t.token != "" {
 		r.Header.Set(protocol.HeaderAuthorization, protocol.BearerPrefix+t.token)
 	}
-	return direct.RoundTrip(r)
+	response, err := direct.RoundTrip(r)
+	if err != nil {
+		return nil, err
+	}
+	contentType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if response.StatusCode < 400 || contentType != "application/json" {
+		return response, nil
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, mcp.DefaultMaxLineLength+1))
+	var message struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Error   *jsonrpc.Error  `json:"error"`
+	}
+	if err == nil && len(body) <= mcp.DefaultMaxLineLength && json.Unmarshal(body, &message) == nil && message.JSONRPC == "2.0" && message.Error != nil &&
+		(len(message.ID) == 0 || string(message.ID) == "null") && r.GetBody != nil {
+		original, openErr := r.GetBody()
+		if openErr == nil {
+			var request struct {
+				ID json.RawMessage `json:"id"`
+			}
+			decodeErr := json.NewDecoder(io.LimitReader(original, mcp.DefaultMaxLineLength)).Decode(&request)
+			_ = original.Close()
+			if decodeErr == nil && len(request.ID) != 0 && string(request.ID) != "null" {
+				message.ID = request.ID
+				body, _ = json.Marshal(message)
+				_ = response.Body.Close()
+				response.Body = io.NopCloser(bytes.NewReader(body))
+				response.ContentLength = int64(len(body))
+				response.Header.Del("Content-Length")
+				return response, nil
+			}
+		}
+	}
+	response.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(body), response.Body), response.Body}
+	return response, nil
 }
