@@ -4,33 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 
+	"github.com/holon-sh/protocol"
+	"github.com/holon-sh/protocol/runtimecontract"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/oauth2"
 )
 
+// Environment proxy settings would send a peer's cluster-local address elsewhere.
+var direct = func() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	return transport
+}()
+
 func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
-	prefix := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
-	endpoint := os.Getenv(prefix + "_MCP_URL")
-	httpClient := &http.Client{CheckRedirect: noRedirect}
-	switch scope, ok := ctx.Value(scopeKey{}).(*requestScope); {
-	case ok:
-		if name == "" || endpoint != scope.host+"/peer/"+url.PathEscape(name) {
-			return nil, fmt.Errorf("dependency %q is not bound to the Holon host", name)
-		}
-		httpClient.Transport = peerTransport{scope: scope, endpoint: endpoint}
-	case endpoint == "":
-		return nil, fmt.Errorf("dependency %q is not bound: set %s_MCP_URL", name, prefix)
-	default:
-		if token := os.Getenv(prefix + "_MCP_TOKEN"); token != "" {
-			httpClient.Transport = &oauth2.Transport{Source: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})}
-		}
+	variable := protocol.DependencyEnvName(name)
+	endpoint := os.Getenv(variable)
+	if endpoint == "" {
+		return nil, fmt.Errorf("dependency %q is not bound: set %s", name, variable)
 	}
+	scope, _ := ctx.Value(scopeKey{}).(*requestScope)
+	token := os.Getenv(strings.TrimSuffix(variable, "URL") + "TOKEN")
+	httpClient := &http.Client{Transport: peerTransport{scope: scope, token: token}, CheckRedirect: noRedirect}
 	// Every client can be asked. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
 	client := mcp.NewClient(&mcp.Implementation{Name: "holon-go", Version: "0.1.0"}, &mcp.ClientOptions{
 		Capabilities:   &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{Form: &mcp.FormElicitationCapabilities{}, URL: &mcp.URLElicitationCapabilities{}}},
@@ -44,45 +42,24 @@ func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 	}, nil)
 }
 
+func noRedirect(*http.Request, []*http.Request) error {
+	return errors.New("MCP endpoint redirects are not allowed")
+}
+
+// peerTransport sends the context of the request a call is made in while that request lasts. Without one the call is
+// the app's own, which the mesh admits as the app. Holon writes every <NAME>_MCP_URL inside it, so each is a peer.
 type peerTransport struct {
-	scope    *requestScope
-	endpoint string
+	scope *requestScope
+	token string
 }
 
 func (t peerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.URL.String() != t.endpoint || t.scope.ctx.Err() != nil {
-		return nil, errors.New("dependency request is outside its active Holon scope")
+	r = r.Clone(r.Context())
+	if t.scope != nil && t.scope.token != "" && t.scope.ctx.Err() == nil {
+		r.Header.Set(runtimecontract.ContextHeader, t.scope.token)
 	}
-	for name := range r.Header {
-		if credentialHeader(name) {
-			return nil, errors.New("applications cannot supply Holon peer credentials")
-		}
+	if t.token != "" {
+		r.Header.Set(protocol.HeaderAuthorization, protocol.BearerPrefix+t.token)
 	}
-	ctx, cancel := context.WithCancel(r.Context())
-	stop := context.AfterFunc(t.scope.ctx, cancel)
-	r = r.Clone(ctx)
-	r.Header.Set("X-Holon-Scope", t.scope.id)
-	response, err := t.scope.transport.RoundTrip(r)
-	if err != nil {
-		stop()
-		cancel()
-		return nil, err
-	}
-	response.Body = &peerBody{ReadCloser: response.Body, close: func() { stop(); cancel() }}
-	if response.Header.Get("X-Holon-Error") != "" {
-		response.Body.Close()
-		return nil, fmt.Errorf("holon peer rejected request: HTTP %d", response.StatusCode)
-	}
-	return response, nil
-}
-
-type peerBody struct {
-	io.ReadCloser
-
-	close func()
-}
-
-func (b *peerBody) Close() error {
-	defer b.close()
-	return b.ReadCloser.Close()
+	return direct.RoundTrip(r)
 }
