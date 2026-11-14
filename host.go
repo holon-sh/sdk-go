@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"mime"
 	"net"
 	"net/http"
@@ -90,7 +91,7 @@ func admit(r *http.Request) (*requestScope, bool) {
 			return nil, false
 		}
 		payload, err := base64.RawURLEncoding.DecodeString(form[1])
-		if err != nil || json.Unmarshal(payload, &claims) != nil || claims == nil {
+		if err != nil || jsonv2.Unmarshal(payload, &claims) != nil || claims == nil {
 			return nil, false
 		}
 	}
@@ -148,7 +149,8 @@ func Serve(ctx context.Context, server *mcp.Server, opts ...Option) error {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			dir, file := path.Split(r.URL.Path)
 			switch {
-			case r.URL.Path == "/mcp" || dir == "/mcp/" && file != "":
+			case r.URL.EscapedPath() == "/mcp" || strings.HasPrefix(r.URL.EscapedPath(), "/mcp/") && dir == "/mcp/" &&
+				file != "" && file != "." && file != "..":
 				scope := &requestScope{ctx: r.Context()}
 				if platform {
 					var ok bool
