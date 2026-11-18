@@ -52,7 +52,7 @@ func addDependencyChecks(peer, app *mcp.Server) {
 		Note json.RawMessage `json:"note,omitempty"`
 	}
 	// An API's document describes the text of a tool's results, which has no outputSchema.
-	parsed := &holon.Dependency{Name: "peer", Tools: map[string]holon.ToolSchema{"contract": {Input: `{"type":"object"}`}}, Responses: []string{"contract"}}
+	parsed := &holon.Dependency{Name: "peer", Tools: map[string]holon.ToolSchema{"contract": {Input: `{"type":"object"}`, Parsed: true}}}
 	mcp.AddTool(app, &mcp.Tool{Name: "contracts"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, struct{}, error) {
 		check := func() error {
 			for _, note := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`"memo"`)} {
@@ -83,21 +83,21 @@ func addDependencyChecks(peer, app *mcp.Server) {
 				}
 			}
 			for mode, code := range map[string]string{"error": "tool_error", "input": "input_required"} {
+				var want mcp.CallToolResult
+				if err := json.Unmarshal([]byte(replies[mode]), &want); err != nil {
+					return err
+				}
+				want.Meta[mcp.MetaKeyServerInfo] = map[string]any{"name": "peer", "version": "1"}
 				for _, dependency := range []*holon.Dependency{dependency, parsed} {
 					_, err := holon.Call[output](ctx, dependency, "contract", map[string]any{"id": mode})
 					var failure *holon.ToolCallError
-					var want mcp.CallToolResult
-					if err := json.Unmarshal([]byte(replies[mode]), &want); err != nil {
-						return err
-					}
-					want.Meta[mcp.MetaKeyServerInfo] = map[string]any{"name": "peer", "version": "1"}
 					if !errors.As(err, &failure) || failure.App != "peer" || failure.Tool != "contract" || failure.Code != code || !reflect.DeepEqual(failure.Result, &want) {
 						return fmt.Errorf("lost MCP result: %v", err)
 					}
-					raw, err := dependency.CallTool(ctx, &mcp.CallToolParams{Name: "contract", Arguments: map[string]any{"id": mode}})
-					if err != nil || !reflect.DeepEqual(raw, &want) {
-						return fmt.Errorf("raw response: %v", err)
-					}
+				}
+				raw, err := dependency.CallTool(ctx, &mcp.CallToolParams{Name: "contract", Arguments: map[string]any{"id": mode}})
+				if err != nil || !reflect.DeepEqual(raw, &want) {
+					return fmt.Errorf("raw response: %v", err)
 				}
 			}
 			return nil
