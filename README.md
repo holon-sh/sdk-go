@@ -59,6 +59,17 @@ apps.Huggingface.HubSearch(ctx, apps.HuggingfaceHubRepoSearchInput{Query: &query
 // apps.Huggingface.HubSearch undefined (type "example.com/foo/holon"._Huggingface has no field or method HubSearch)
 ```
 
+## Reading your own calls
+
+Holon gives every app `control`, which lists the MCP calls to the app, newest first. There is nothing to declare:
+
+```go
+import "github.com/holon-sh/sdk-go/system"
+
+since := "24h"
+page, err := system.Control.GetTraces(ctx, system.ControlGetTracesInput{Since: &since})
+```
+
 ## Community
 
 Ask questions and share what you're building on the [Holon Discord](https://discord.gg/jXExyBdy).
