@@ -21,6 +21,9 @@ type ToolSchema struct {
 type Dependency struct {
 	Name  string
 	Tools map[string]ToolSchema
+	// Responses names the tools whose text is JSON that an API's document describes. Call decodes the first text block
+	// of their results, or null when there is none, and checks nothing.
+	Responses []string
 }
 
 func validate(schema string, value any) error {
@@ -126,6 +129,15 @@ func Call[Output any](ctx context.Context, dependency *Dependency, name string, 
 		return output, &ToolCallError{App: dependency.Name, Tool: name, Code: code, Result: result}
 	}
 	data, _ := json.Marshal(result.StructuredContent)
+	if slices.Contains(dependency.Responses, name) {
+		data = []byte("null")
+		for _, content := range result.Content {
+			if text, ok := content.(*mcp.TextContent); ok {
+				data = []byte(text.Text)
+				break
+			}
+		}
+	}
 	err = json.Unmarshal(data, &output)
 	return output, err
 }
