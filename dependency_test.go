@@ -21,6 +21,8 @@ func addDependencyChecks(peer, app *mcp.Server) {
 		"incompatible": `{"structuredContent":{"id":1}}`,
 		"error":        `{"resultType":"complete","isError":true,"content":[{"type":"text","text":"specific failure"}],"_meta":{"trace":"kept"}}`,
 		"input":        `{"resultType":"input_required","requestState":"resume-me","inputRequests":{},"_meta":{"trace":"kept"}}`,
+		"text":         `{"content":[{"type":"image","data":"AA==","mimeType":"image/png"},{"type":"text","text":"{\"id\":\"parsed\"}"},{"type":"text","text":"{}"}],"structuredContent":{"id":"structured"}}`,
+		"empty":        `{"content":[]}`,
 	}
 	peer.AddTool(&mcp.Tool{Name: "contract", InputSchema: json.RawMessage(`{"type":"object"}`)}, func(_ context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		calls.Add(1)
@@ -49,6 +51,7 @@ func addDependencyChecks(peer, app *mcp.Server) {
 		ID   string          `json:"id"`
 		Note json.RawMessage `json:"note,omitempty"`
 	}
+	parsed := &holon.Dependency{Name: "peer", Tools: map[string]holon.ToolSchema{"contract": {Input: `{"type":"object"}`, Parsed: true}}}
 	mcp.AddTool(app, &mcp.Tool{Name: "contracts"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, struct{}, error) {
 		check := func() error {
 			for _, note := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`"memo"`)} {
@@ -73,16 +76,23 @@ func addDependencyChecks(peer, app *mcp.Server) {
 			if _, err := holon.Call[output](ctx, dependency, "contract", map[string]any{"id": "incompatible"}); err == nil || !strings.Contains(err.Error(), "structured output") {
 				return fmt.Errorf("incompatible result accepted: %v", err)
 			}
+			for id, want := range map[string]*output{"text": {ID: "parsed"}, "empty": nil} {
+				if got, err := holon.Call[*output](ctx, parsed, "contract", map[string]any{"id": id}); err != nil || !reflect.DeepEqual(got, want) {
+					return fmt.Errorf("parsed %s result: %+v, %v", id, got, err)
+				}
+			}
 			for mode, code := range map[string]string{"error": "tool_error", "input": "input_required"} {
-				_, err := holon.Call[output](ctx, dependency, "contract", map[string]any{"id": mode})
-				var failure *holon.ToolCallError
 				var want mcp.CallToolResult
 				if err := json.Unmarshal([]byte(replies[mode]), &want); err != nil {
 					return err
 				}
 				want.Meta[mcp.MetaKeyServerInfo] = map[string]any{"name": "peer", "version": "1"}
-				if !errors.As(err, &failure) || failure.App != "peer" || failure.Tool != "contract" || failure.Code != code || !reflect.DeepEqual(failure.Result, &want) {
-					return fmt.Errorf("lost MCP result: %v", err)
+				for _, dependency := range []*holon.Dependency{dependency, parsed} {
+					_, err := holon.Call[output](ctx, dependency, "contract", map[string]any{"id": mode})
+					var failure *holon.ToolCallError
+					if !errors.As(err, &failure) || failure.App != "peer" || failure.Tool != "contract" || failure.Code != code || !reflect.DeepEqual(failure.Result, &want) {
+						return fmt.Errorf("lost MCP result: %v", err)
+					}
 				}
 				raw, err := dependency.CallTool(ctx, &mcp.CallToolParams{Name: "contract", Arguments: map[string]any{"id": mode}})
 				if err != nil || !reflect.DeepEqual(raw, &want) {
