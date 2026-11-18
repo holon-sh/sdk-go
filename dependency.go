@@ -16,9 +16,7 @@ import (
 
 type ToolSchema struct {
 	Input, Output string
-	// Parsed marks a tool whose text is JSON that an API's document describes. Call decodes the first text block of its
-	// results, or returns the zero value when there is none, and checks nothing.
-	Parsed bool
+	Parsed        bool
 }
 
 type Dependency struct {

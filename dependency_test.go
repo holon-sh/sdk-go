@@ -51,7 +51,6 @@ func addDependencyChecks(peer, app *mcp.Server) {
 		ID   string          `json:"id"`
 		Note json.RawMessage `json:"note,omitempty"`
 	}
-	// An API's document describes the text of a tool's results, which has no outputSchema.
 	parsed := &holon.Dependency{Name: "peer", Tools: map[string]holon.ToolSchema{"contract": {Input: `{"type":"object"}`, Parsed: true}}}
 	mcp.AddTool(app, &mcp.Tool{Name: "contracts"}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, struct{}, error) {
 		check := func() error {
