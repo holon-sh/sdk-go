@@ -88,6 +88,9 @@ func (d *Dependency) CallTool(ctx context.Context, params *mcp.CallToolParams, e
 		return nil, err
 	}
 	if !result.IsError && !result.NeedsInput() && len(tool.Output) > 0 {
+		if result.StructuredContent == nil {
+			return nil, fmt.Errorf("no structured output from %s.%s", d.Name, params.Name)
+		}
 		if err := validate(tool.Output, result.StructuredContent); err != nil {
 			return nil, fmt.Errorf("structured output from %s.%s: %w", d.Name, params.Name, err)
 		}
