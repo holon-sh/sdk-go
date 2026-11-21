@@ -16,7 +16,6 @@ import (
 
 type ToolSchema struct {
 	Input, Output string
-	Parsed        bool
 }
 
 type Dependency struct {
@@ -89,6 +88,9 @@ func (d *Dependency) CallTool(ctx context.Context, params *mcp.CallToolParams, e
 		return nil, err
 	}
 	if !result.IsError && !result.NeedsInput() && len(tool.Output) > 0 {
+		if result.StructuredContent == nil {
+			return nil, fmt.Errorf("no structured output from %s.%s", d.Name, params.Name)
+		}
 		if err := validate(tool.Output, result.StructuredContent); err != nil {
 			return nil, fmt.Errorf("structured output from %s.%s: %w", d.Name, params.Name, err)
 		}
@@ -125,15 +127,6 @@ func Call[Output any](ctx context.Context, dependency *Dependency, name string, 
 			code = "input_required"
 		}
 		return output, &ToolCallError{App: dependency.Name, Tool: name, Code: code, Result: result}
-	}
-	if dependency.Tools[name].Parsed {
-		for _, content := range result.Content {
-			if text, ok := content.(*mcp.TextContent); ok {
-				err = json.Unmarshal([]byte(text.Text), &output)
-				return output, err
-			}
-		}
-		return output, nil
 	}
 	data, _ := json.Marshal(result.StructuredContent)
 	err = json.Unmarshal(data, &output)
