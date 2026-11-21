@@ -14,9 +14,11 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
+// ToolSchema holds a tool's JSON Schemas. Call returns a Parsed tool's first text block decoded as JSON, checked
+// against Response if it is set, which also makes the tool Parsed. CallTool returns that text unchecked.
 type ToolSchema struct {
-	Input, Output string
-	Parsed        bool
+	Input, Output, Response string
+	Parsed                  bool
 }
 
 type Dependency struct {
@@ -126,9 +128,14 @@ func Call[Output any](ctx context.Context, dependency *Dependency, name string, 
 		}
 		return output, &ToolCallError{App: dependency.Name, Tool: name, Code: code, Result: result}
 	}
-	if dependency.Tools[name].Parsed {
+	if tool := dependency.Tools[name]; tool.Parsed || len(tool.Response) > 0 {
 		for _, content := range result.Content {
 			if text, ok := content.(*mcp.TextContent); ok {
+				if len(tool.Response) > 0 {
+					if err := validate(tool.Response, json.RawMessage(text.Text)); err != nil {
+						return output, fmt.Errorf("response from %s.%s: %w", dependency.Name, name, err)
+					}
+				}
 				err = json.Unmarshal([]byte(text.Text), &output)
 				return output, err
 			}
