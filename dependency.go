@@ -127,18 +127,22 @@ func Call[Output any](ctx context.Context, dependency *Dependency, name string, 
 		return output, &ToolCallError{App: dependency.Name, Tool: name, Code: code, Result: result}
 	}
 	if tool := dependency.Tools[name]; tool.Parsed || len(tool.Response) > 0 {
+		text, found := "null", false
 		for _, content := range result.Content {
-			if text, ok := content.(*mcp.TextContent); ok {
-				if len(tool.Response) > 0 {
-					if err := validate(tool.Response, json.RawMessage(text.Text)); err != nil {
-						return output, fmt.Errorf("response from %s.%s: %w", dependency.Name, name, err)
-					}
-				}
-				err = json.Unmarshal([]byte(text.Text), &output)
-				return output, err
+			if block, ok := content.(*mcp.TextContent); ok {
+				text, found = block.Text, true
+				break
 			}
 		}
-		return output, nil
+		if len(tool.Response) > 0 {
+			if err := validate(tool.Response, json.RawMessage(text)); err != nil {
+				return output, fmt.Errorf("response from %s.%s: %w", dependency.Name, name, err)
+			}
+		} else if !found {
+			return output, nil
+		}
+		err = json.Unmarshal([]byte(text), &output)
+		return output, err
 	}
 	data, _ := json.Marshal(result.StructuredContent)
 	err = json.Unmarshal(data, &output)
