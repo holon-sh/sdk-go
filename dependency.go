@@ -15,8 +15,7 @@ import (
 )
 
 type ToolSchema struct {
-	Input, Output, Response string
-	Parsed                  bool
+	Input, Output string
 }
 
 type Dependency struct {
@@ -125,29 +124,6 @@ func Call[Output any](ctx context.Context, dependency *Dependency, name string, 
 			code = "input_required"
 		}
 		return output, &ToolCallError{App: dependency.Name, Tool: name, Code: code, Result: result}
-	}
-	if tool := dependency.Tools[name]; len(tool.Response) > 0 {
-		text := json.RawMessage("null")
-		for _, content := range result.Content {
-			if block, ok := content.(*mcp.TextContent); ok {
-				text = json.RawMessage(block.Text)
-				break
-			}
-		}
-		if err := validate(tool.Response, text); err != nil {
-			return output, fmt.Errorf("response from %s.%s: %w", dependency.Name, name, err)
-		}
-		err = json.Unmarshal(text, &output)
-		return output, err
-	}
-	if dependency.Tools[name].Parsed {
-		for _, content := range result.Content {
-			if text, ok := content.(*mcp.TextContent); ok {
-				err = json.Unmarshal([]byte(text.Text), &output)
-				return output, err
-			}
-		}
-		return output, nil
 	}
 	data, _ := json.Marshal(result.StructuredContent)
 	err = json.Unmarshal(data, &output)
