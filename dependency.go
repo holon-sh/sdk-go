@@ -14,8 +14,6 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// ToolSchema holds a tool's JSON Schemas. Call returns a Parsed tool's first text block decoded as JSON, checked
-// against Response if it is set, which also makes the tool Parsed. CallTool returns that text unchecked.
 type ToolSchema struct {
 	Input, Output, Response string
 	Parsed                  bool
