@@ -34,7 +34,9 @@ type Principal struct {
 
 // Caller is the app of the same session that made a request. A lifecycle hook's job calls as its app.
 type Caller struct {
-	App     string `json:"app"`
+	App string `json:"app"`
+	// Session is the name of the Session both apps run in, such as "production". A Session keeps its name when it is
+	// recreated, as on a cluster migration.
 	Session string `json:"session"`
 }
 

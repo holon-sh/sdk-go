@@ -169,13 +169,13 @@ func TestRequestContext(t *testing.T) {
 		return nil, inspection{Context: string(identity), Leaked: leaked, Peer: peer}, err
 	})
 	const (
-		reporter = "session/reporter"
+		reporter = "production/reporter"
 	)
 	person := `{"exp":4102444800,"aud":["https://holon.example"],"principal":{"iss":"issuer","sub":"user","client_id":"client",` +
 		`"scope":"read write","claims":{"email":"ada@example.com","custom":{"values":[1,null]}},"act":{"sub":"agent"}}}`
 	user := `{"issuer":"issuer","subject":"user","clientId":"client","scopes":["read","write"],` +
 		`"claims":{"custom":{"values":[1,null]},"email":"ada@example.com"},"actor":{"sub":"agent"}}`
-	reporting := `{"app":"reporter","session":"session"}`
+	reporting := `{"app":"reporter","session":"production"}`
 	anonymous := `{"principal":null,"caller":null}`
 	subject := strings.Repeat("u", 9000)
 	large := token(strings.Replace(person, `"sub":"user"`, `"sub":"`+subject+`"`, 1))
@@ -188,7 +188,7 @@ func TestRequestContext(t *testing.T) {
 		{"signed-out person", "1", "/mcp", token(`{"exp":4102444800,"aud":"https://holon.example"}`), "", anonymous},
 		{"app outside a request", "1", "/mcp", "", reporter, `{"principal":null,"caller":` + reporting + `}`},
 		{"lifecycle hook job, named as its app", "1", "/mcp", token(`{"exp":4102444800,"aud":"https://holon.example","hook":{"app":"accounts","job":"install-accounts"}}`),
-			"session/accounts", `{"principal":null,"caller":{"app":"accounts","session":"session"}}`},
+			"production/accounts", `{"principal":null,"caller":{"app":"accounts","session":"production"}}`},
 		{"16 KiB context", "1", "/mcp", large, "", `{"principal":` + strings.Replace(user, `"subject":"user"`, `"subject":"`+subject+`"`, 1) + `,"caller":null}`},
 		{"outside Holon", "", "/mcp", token(person), reporter, anonymous},
 	} {
