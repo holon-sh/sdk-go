@@ -275,7 +275,7 @@ func TestPeerCalls(t *testing.T) {
 			t.Errorf("call outside a request with token %q: %+v, %v", secret, got, err)
 		}
 	}
-	if _, err := holon.Connect(t.Context(), "missing"); err == nil || !strings.Contains(err.Error(), "set MISSING_MCP_URL") {
+	if _, err := holon.Connect(t.Context(), "missing"); !errors.Is(err, holon.ErrNotBound) {
 		t.Errorf("unbound dependency: %v", err)
 	}
 	if got, err := holon.Call[credentials](holon.ActAs(t.Context(), "bob"), reader, "read", struct{}{}); err != nil || got.Subject != "bob" || got.Actor != "" {
@@ -290,8 +290,18 @@ func TestPeerCalls(t *testing.T) {
 	moved := httptest.NewServer(http.RedirectHandler(elsewhere.URL+"/mcp", http.StatusTemporaryRedirect))
 	defer moved.Close()
 	t.Setenv("MOVED_MCP_URL", moved.URL+"/mcp")
-	if _, err := holon.Connect(t.Context(), "moved"); err == nil || followed.Load() {
-		t.Errorf("redirect followed: %v", err)
+	var seen atomic.Int32
+	watch := holon.WithTransport(func(next http.RoundTripper) http.RoundTripper {
+		return roundTrip(func(r *http.Request) (*http.Response, error) {
+			response, err := next.RoundTrip(r)
+			if err == nil {
+				seen.Store(int32(response.StatusCode))
+			}
+			return response, err
+		})
+	})
+	if _, err := holon.Connect(t.Context(), "moved", watch); err == nil || followed.Load() || seen.Load() != http.StatusTemporaryRedirect {
+		t.Errorf("redirect followed or unseen: %v, saw %d", err, seen.Load())
 	}
 }
 
@@ -410,3 +420,7 @@ func TestShutdown(t *testing.T) {
 		t.Error("listener survived shutdown")
 	}
 }
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

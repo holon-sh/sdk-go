@@ -20,11 +20,27 @@ var direct = func() *http.Transport {
 	return transport
 }()
 
-func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
+var ErrNotBound = errors.New("not bound")
+
+type ConnectOption func(*connecting)
+
+type connecting struct {
+	wraps []func(http.RoundTripper) http.RoundTripper
+}
+
+func WithTransport(wrap func(http.RoundTripper) http.RoundTripper) ConnectOption {
+	return func(c *connecting) { c.wraps = append(c.wraps, wrap) }
+}
+
+func Connect(ctx context.Context, name string, opts ...ConnectOption) (*mcp.ClientSession, error) {
+	var options connecting
+	for _, opt := range opts {
+		opt(&options)
+	}
 	variable := protocol.DependencyEnvName(name)
 	endpoint := os.Getenv(variable)
 	if endpoint == "" {
-		return nil, fmt.Errorf("dependency %q is not bound: set %s", name, variable)
+		return nil, fmt.Errorf("dependency %q is %w: set %s", name, ErrNotBound, variable)
 	}
 	scope, _ := ctx.Value(scopeKey{}).(*requestScope)
 	as, _ := ctx.Value(actingKey{}).(*acting)
@@ -32,7 +48,11 @@ func Connect(ctx context.Context, name string) (*mcp.ClientSession, error) {
 		return nil, errors.New("ActAs needs the subject of a person")
 	}
 	token := os.Getenv(strings.TrimSuffix(variable, "URL") + "TOKEN")
-	httpClient := &http.Client{Transport: peerTransport{scope: scope, acting: as, token: token}, CheckRedirect: noRedirect}
+	var transport http.RoundTripper = peerTransport{scope: scope, acting: as, token: token}
+	for _, wrap := range options.wraps {
+		transport = wrap(transport)
+	}
+	httpClient := &http.Client{Transport: transport, CheckRedirect: noRedirect}
 	// Every client can be asked. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
 	client := mcp.NewClient(&mcp.Implementation{Name: "holon-go", Version: "0.1.0"}, &mcp.ClientOptions{
 		Capabilities:   &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{Form: &mcp.FormElicitationCapabilities{}, URL: &mcp.URLElicitationCapabilities{}}},
