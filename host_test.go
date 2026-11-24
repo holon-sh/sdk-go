@@ -124,6 +124,8 @@ func callTool(t *testing.T, endpoint string, header http.Header, name string) *m
 
 type credentials struct {
 	Context       string `json:"context"`
+	Subject       string `json:"subject"`
+	Actor         string `json:"actor"`
 	Authorization string `json:"authorization"`
 }
 
@@ -133,7 +135,8 @@ var reader = &holon.Dependency{Name: "peer", Tools: map[string]holon.ToolSchema{
 func startPeer(t *testing.T) *mcp.Server {
 	peer := mcp.NewServer(&mcp.Implementation{Name: "peer", Version: "1"}, nil)
 	mcp.AddTool(peer, &mcp.Tool{Name: "read"}, func(_ context.Context, r *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, credentials, error) {
-		return nil, credentials{r.Extra.Header.Get("X-Holon-Context"), r.Extra.Header.Get("Authorization")}, nil
+		return nil, credentials{r.Extra.Header.Get("X-Holon-Context"), r.Extra.Header.Get("X-Holon-Subject"),
+			r.Extra.Header.Get("X-Holon-Actor"), r.Extra.Header.Get("Authorization")}, nil
 	})
 	server := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return peer },
 		&mcp.StreamableHTTPOptions{Stateless: true}))
@@ -146,6 +149,7 @@ type inspection struct {
 	Context string      `json:"context"`
 	Leaked  []string    `json:"leaked"`
 	Peer    credentials `json:"peer"`
+	Acting  credentials `json:"acting"`
 }
 
 func TestRequestContext(t *testing.T) {
@@ -162,11 +166,12 @@ func TestRequestContext(t *testing.T) {
 		}
 		identity, _ := json.Marshal(holon.Context(ctx))
 		peer, err := holon.Call[credentials](ctx, reader, "read", struct{}{})
+		acting, actingErr := holon.Call[credentials](holon.ActAs(ctx, "bob", holon.WithActor("onboarding")), reader, "read", struct{}{})
 		select {
 		case retained <- context.WithoutCancel(ctx):
 		default:
 		}
-		return nil, inspection{Context: string(identity), Leaked: leaked, Peer: peer}, err
+		return nil, inspection{Context: string(identity), Leaked: leaked, Peer: peer, Acting: acting}, errors.Join(err, actingErr)
 	})
 	const (
 		reporter = "session/reporter"
@@ -214,11 +219,14 @@ func TestRequestContext(t *testing.T) {
 			if tc.platform == "1" {
 				forwarded = tc.context
 			}
-			if got.Peer != (credentials{forwarded, "Bearer peer-secret"}) {
+			if got.Peer != (credentials{Context: forwarded, Authorization: "Bearer peer-secret"}) {
 				t.Fatalf("peer call during the request: context %t, authorization %q", got.Peer.Context != "", got.Peer.Authorization)
 			}
+			if got.Acting != (credentials{Subject: "bob", Actor: "onboarding", Authorization: "Bearer peer-secret"}) {
+				t.Fatalf("peer call acting for bob during the request: %+v", got.Acting)
+			}
 			late, err := holon.Call[credentials](receive(t, retained), reader, "read", struct{}{})
-			if err != nil || late != (credentials{"", "Bearer peer-secret"}) {
+			if err != nil || late != (credentials{Authorization: "Bearer peer-secret"}) {
 				t.Fatalf("peer call after the request: context %t, authorization %q, %v", late.Context != "", late.Authorization, err)
 			}
 		})
@@ -263,12 +271,18 @@ func TestPeerCalls(t *testing.T) {
 	callTool(t, origin+"/mcp", nil, "contracts")
 	for secret, want := range map[string]string{"": "", "secret": "Bearer secret"} {
 		t.Setenv("PEER_MCP_TOKEN", secret)
-		if got, err := holon.Call[credentials](t.Context(), reader, "read", struct{}{}); err != nil || got != (credentials{"", want}) {
+		if got, err := holon.Call[credentials](t.Context(), reader, "read", struct{}{}); err != nil || got != (credentials{Authorization: want}) {
 			t.Errorf("call outside a request with token %q: %+v, %v", secret, got, err)
 		}
 	}
 	if _, err := holon.Connect(t.Context(), "missing"); err == nil || !strings.Contains(err.Error(), "set MISSING_MCP_URL") {
 		t.Errorf("unbound dependency: %v", err)
+	}
+	if got, err := holon.Call[credentials](holon.ActAs(t.Context(), "bob"), reader, "read", struct{}{}); err != nil || got.Subject != "bob" || got.Actor != "" {
+		t.Errorf("acting for bob outside a request: %+v, %v", got, err)
+	}
+	if _, err := holon.Connect(holon.ActAs(t.Context(), ""), "peer"); err == nil || !strings.Contains(err.Error(), "subject of a person") {
+		t.Errorf("acting for no one: %v", err)
 	}
 	var followed atomic.Bool
 	elsewhere := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { followed.Store(true) }))
