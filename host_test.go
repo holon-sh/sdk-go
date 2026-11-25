@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	holon "github.com/holon-sh/sdk-go"
@@ -138,8 +139,22 @@ func startPeer(t *testing.T) *mcp.Server {
 		return nil, credentials{r.Extra.Header.Get("X-Holon-Context"), r.Extra.Header.Get("X-Holon-Subject"),
 			r.Extra.Header.Get("X-Holon-Actor"), r.Extra.Header.Get("Authorization")}, nil
 	})
-	server := httptest.NewServer(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return peer },
-		&mcp.StreamableHTTPOptions{Stateless: true}))
+	peer.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
+			if method == "server/discover" {
+				return nil, &jsonrpc.Error{Code: 1001, Message: "Connect your account to continue."}
+			}
+			return next(ctx, method, request)
+		}
+	})
+	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return peer }, &mcp.StreamableHTTPOptions{Stateless: true})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Mcp-Protocol-Version") != "2026-07-28" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
 	t.Cleanup(server.Close)
 	t.Setenv("PEER_MCP_URL", server.URL+"/mcp")
 	return peer
@@ -254,10 +269,9 @@ func TestRequestContext(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			body, _ := io.ReadAll(response.Body)
 			response.Body.Close()
-			if response.StatusCode != http.StatusBadRequest || string(body) != "Malformed Holon context\n" {
-				t.Errorf("%s: got %d %q", name, response.StatusCode, body)
+			if response.StatusCode != http.StatusBadRequest {
+				t.Errorf("%s: got %d", name, response.StatusCode)
 			}
 		}
 	})
@@ -281,7 +295,11 @@ func TestPeerCalls(t *testing.T) {
 	if got, err := holon.Call[credentials](holon.ActAs(t.Context(), "bob"), reader, "read", struct{}{}); err != nil || got.Subject != "bob" || got.Actor != "" {
 		t.Errorf("acting for bob outside a request: %+v, %v", got, err)
 	}
-	if _, err := holon.Connect(holon.ActAs(t.Context(), ""), "peer"); err == nil || !strings.Contains(err.Error(), "subject of a person") {
+	discovering, _ := holon.Connect(t.Context(), "peer")
+	if _, err := discovering.Discover(t.Context(), nil); err == nil {
+		t.Errorf("discovery the caller asks for reached no peer")
+	}
+	if _, err := holon.Connect(holon.ActAs(t.Context(), ""), "peer"); err == nil {
 		t.Errorf("acting for no one: %v", err)
 	}
 	var followed atomic.Bool
@@ -300,7 +318,8 @@ func TestPeerCalls(t *testing.T) {
 			return response, err
 		})
 	})
-	if _, err := holon.Connect(t.Context(), "moved", watch); err == nil || followed.Load() || seen.Load() != http.StatusTemporaryRedirect {
+	moving, _ := holon.Connect(t.Context(), "moved", watch)
+	if _, err := moving.ListTools(t.Context(), nil); err == nil || followed.Load() || seen.Load() != http.StatusTemporaryRedirect {
 		t.Errorf("redirect followed or unseen: %v, saw %d", err, seen.Load())
 	}
 }

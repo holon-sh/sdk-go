@@ -58,12 +58,24 @@ func Connect(ctx context.Context, name string, opts ...ConnectOption) (*mcp.Clie
 		Capabilities:   &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{Form: &mcp.FormElicitationCapabilities{}, URL: &mcp.URLElicitationCapabilities{}}},
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
 	})
-	return client.Connect(ctx, &mcp.StreamableClientTransport{
-		Endpoint:             endpoint,
-		HTTPClient:           httpClient,
-		DisableStandaloneSSE: true,
-		MaxRetries:           -1,
+	client.AddSendingMiddleware(knownPeer)
+	return client.Connect(context.WithValue(ctx, connectingKey{}, true), &mcp.StreamableClientTransport{
+		Endpoint:   endpoint,
+		HTTPClient: httpClient,
+		MaxRetries: -1,
 	}, nil)
+}
+
+type connectingKey struct{}
+
+// https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning#protocol-version-negotiation
+func knownPeer(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, request mcp.Request) (mcp.Result, error) {
+		if method != "server/discover" || ctx.Value(connectingKey{}) == nil {
+			return next(ctx, method, request)
+		}
+		return &mcp.DiscoverResult{SupportedVersions: []string{"2026-07-28"}}, nil
+	}
 }
 
 func noRedirect(*http.Request, []*http.Request) error {
