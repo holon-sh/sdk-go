@@ -121,7 +121,7 @@ func (d *Dependency) StartTask(ctx context.Context, params *mcp.CallToolParams, 
 
 // https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks#task-polling
 func (d *Dependency) GetTask(ctx context.Context, id TaskID) (DetailedTask, error) {
-	answer, err := requestTask[*taskAnswer](ctx, d.Name, methodGetTask, &taskParams{TaskID: id})
+	answer, err := requestTask(ctx, d.Name, methodGetTask, &taskParams{TaskID: id})
 	if err != nil {
 		return nil, err
 	}
@@ -130,17 +130,17 @@ func (d *Dependency) GetTask(ctx context.Context, id TaskID) (DetailedTask, erro
 
 // https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks#task-update-requests
 func (d *Dependency) UpdateTask(ctx context.Context, id TaskID, responses mcp.InputResponseMap) error {
-	_, err := requestTask[*acknowledgement](ctx, d.Name, methodUpdateTask, &taskParams{TaskID: id, InputResponses: responses})
+	_, err := requestTask(ctx, d.Name, methodUpdateTask, &taskParams{TaskID: id, InputResponses: responses})
 	return err
 }
 
 // https://tasks.extensions.modelcontextprotocol.io/specification/2026-07-28/tasks#task-cancellation
 func (d *Dependency) CancelTask(ctx context.Context, id TaskID) error {
-	_, err := requestTask[*acknowledgement](ctx, d.Name, methodCancelTask, &taskParams{TaskID: id})
+	_, err := requestTask(ctx, d.Name, methodCancelTask, &taskParams{TaskID: id})
 	return err
 }
 
-func tasks(c *connecting) { c.capabilities.AddExtension(tasksExtension, nil) }
+func tasks(c *connecting) { c.extensions = map[string]any{tasksExtension: struct{}{}} }
 
 type taskParams struct {
 	mcp.ParamsBase
@@ -152,28 +152,25 @@ type taskAnswer struct {
 	mcp.ResultBase
 	Task
 	InputRequests mcp.InputRequestMap `json:"inputRequests"`
-	Result        json.RawMessage     `json:"result"`
-	Error         jsonrpc.Error       `json:"error"`
+	Result        *mcp.CallToolResult `json:"result"`
+	Error         *jsonrpc.Error      `json:"error"`
 }
-
-type acknowledgement struct{ mcp.ResultBase }
 
 func addTaskMethods(client *mcp.Client) {
-	_ = mcp.AddSendingCustomMethod[*taskParams, *taskAnswer](client, methodGetTask)
-	_ = mcp.AddSendingCustomMethod[*taskParams, *acknowledgement](client, methodUpdateTask)
-	_ = mcp.AddSendingCustomMethod[*taskParams, *acknowledgement](client, methodCancelTask)
+	for _, method := range []string{methodGetTask, methodUpdateTask, methodCancelTask} {
+		_ = mcp.AddSendingCustomMethod[*taskParams, *taskAnswer](client, method)
+	}
 }
 
-func requestTask[R mcp.Result](ctx context.Context, app, method string, params *taskParams) (R, error) {
+func requestTask(ctx context.Context, app, method string, params *taskParams) (*taskAnswer, error) {
 	client, err := Connect(ctx, app, tasks, WithTransport(func(next http.RoundTripper) http.RoundTripper {
 		return naming{next, params.TaskID}
 	}))
 	if err != nil {
-		var none R
-		return none, err
+		return nil, err
 	}
 	defer client.Close()
-	return mcp.CallCustomMethod[*taskParams, R](ctx, client, method, params)
+	return mcp.CallCustomMethod[*taskParams, *taskAnswer](ctx, client, method, params)
 }
 
 func (a *taskAnswer) detailed() (DetailedTask, error) {
@@ -183,13 +180,9 @@ func (a *taskAnswer) detailed() (DetailedTask, error) {
 	case TaskInputRequired:
 		return InputRequiredTask{a.Task, a.InputRequests}, nil
 	case TaskCompleted:
-		result := new(mcp.CallToolResult)
-		if err := json.Unmarshal(a.Result, result); err != nil {
-			return nil, err
-		}
-		return CompletedTask{a.Task, result}, nil
+		return CompletedTask{a.Task, a.Result}, nil
 	case TaskFailed:
-		return FailedTask{a.Task, &a.Error}, nil
+		return FailedTask{a.Task, a.Error}, nil
 	case TaskCancelled:
 		return CancelledTask{a.Task}, nil
 	}
@@ -258,26 +251,19 @@ func (r *eventReader) field(line []byte) {
 	if len(line) == 0 {
 		observe(r.data, r.created)
 		r.data = nil
-		return
+	} else if value, ok := bytes.CutPrefix(line, []byte("data:")); ok {
+		r.data = append(append(r.data, bytes.TrimPrefix(value, []byte(" "))...), '\n')
 	}
-	value, ok := bytes.CutPrefix(line, []byte("data:"))
-	if !ok {
-		return
-	}
-	if r.data != nil {
-		r.data = append(r.data, '\n')
-	}
-	r.data = append(r.data, bytes.TrimPrefix(value, []byte(" "))...)
 }
 
 func observe(message []byte, created **Task) {
 	var response struct {
-		Result *struct {
+		Result struct {
 			ResultType string `json:"resultType"`
 			Task
 		} `json:"result"`
 	}
-	if json.Unmarshal(message, &response) == nil && response.Result != nil && response.Result.ResultType == resultTypeTask {
+	if json.Unmarshal(message, &response) == nil && response.Result.ResultType == resultTypeTask {
 		*created = &response.Result.Task
 	}
 }

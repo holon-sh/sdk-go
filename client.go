@@ -25,8 +25,8 @@ var ErrNotBound = errors.New("not bound")
 type ConnectOption func(*connecting)
 
 type connecting struct {
-	wraps        []func(http.RoundTripper) http.RoundTripper
-	capabilities *mcp.ClientCapabilities
+	wraps      []func(http.RoundTripper) http.RoundTripper
+	extensions map[string]any
 }
 
 func WithTransport(wrap func(http.RoundTripper) http.RoundTripper) ConnectOption {
@@ -34,8 +34,7 @@ func WithTransport(wrap func(http.RoundTripper) http.RoundTripper) ConnectOption
 }
 
 func Connect(ctx context.Context, name string, opts ...ConnectOption) (*mcp.ClientSession, error) {
-	// Every client can be asked. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
-	options := connecting{capabilities: &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{Form: &mcp.FormElicitationCapabilities{}, URL: &mcp.URLElicitationCapabilities{}}}}
+	var options connecting
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -55,8 +54,9 @@ func Connect(ctx context.Context, name string, opts ...ConnectOption) (*mcp.Clie
 		transport = wrap(transport)
 	}
 	httpClient := &http.Client{Transport: transport, CheckRedirect: noRedirect}
+	// Every client can be asked. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
 	client := mcp.NewClient(&mcp.Implementation{Name: "holon-go", Version: "0.1.0"}, &mcp.ClientOptions{
-		Capabilities:   options.capabilities,
+		Capabilities:   &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{Form: &mcp.FormElicitationCapabilities{}, URL: &mcp.URLElicitationCapabilities{}}, Extensions: options.extensions},
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
 	})
 	addTaskMethods(client)

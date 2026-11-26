@@ -61,21 +61,16 @@ func startTaskPeer(t *testing.T, created string, tasks map[string]string) func()
 			return withResultType("task", created), nil
 		}
 	})
-	known := func(params *taskRequest) (string, error) {
-		task, ok := tasks[params.TaskID]
-		if !ok {
-			return "", &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "Task not found"}
-		}
-		return task, nil
-	}
-	acknowledge := func(_ context.Context, _ *mcp.ServerSession, params *taskRequest) (*rawResult, error) {
-		_, err := known(params)
-		return &rawResult{body: `{"resultType":"complete"}`}, err
+	acknowledge := func(context.Context, *mcp.ServerSession, *taskRequest) (*rawResult, error) {
+		return &rawResult{body: `{"resultType":"complete"}`}, nil
 	}
 	if err := errors.Join(
 		mcp.AddReceivingCustomMethod(peer, "tasks/get", func(_ context.Context, _ *mcp.ServerSession, params *taskRequest) (*rawResult, error) {
-			task, err := known(params)
-			return withResultType("complete", task), err
+			task, ok := tasks[params.TaskID]
+			if !ok {
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "Task not found"}
+			}
+			return withResultType("complete", task), nil
 		}),
 		mcp.AddReceivingCustomMethod(peer, "tasks/update", acknowledge),
 		mcp.AddReceivingCustomMethod(peer, "tasks/cancel", acknowledge),
@@ -100,16 +95,11 @@ func startTaskPeer(t *testing.T, created string, tasks map[string]string) func()
 				InputResponses json.RawMessage `json:"inputResponses"`
 			} `json:"params"`
 		}
-		if json.Unmarshal(body, &message) == nil && message.Method != "" {
-			_, declared := message.Params.Meta.Capabilities.Extensions[tasksCapability]
-			entry := fmt.Sprintf("%s %s declared=%t", message.Method, r.Header.Get("Mcp-Name"), declared)
-			if responses := string(message.Params.InputResponses); responses != "" && responses != "null" {
-				entry += " " + responses
-			}
-			mu.Lock()
-			received = append(received, entry)
-			mu.Unlock()
-		}
+		json.Unmarshal(body, &message)
+		_, declared := message.Params.Meta.Capabilities.Extensions[tasksCapability]
+		mu.Lock()
+		received = append(received, strings.TrimSpace(fmt.Sprintf("%s %s declared=%t %s", message.Method, r.Header.Get("Mcp-Name"), declared, string(message.Params.InputResponses))))
+		mu.Unlock()
 		if bytes.Contains(body, []byte(`"json":true`)) {
 			bodies.ServeHTTP(w, r)
 			return
