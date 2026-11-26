@@ -25,7 +25,8 @@ var ErrNotBound = errors.New("not bound")
 type ConnectOption func(*connecting)
 
 type connecting struct {
-	wraps []func(http.RoundTripper) http.RoundTripper
+	wraps      []func(http.RoundTripper) http.RoundTripper
+	extensions map[string]any
 }
 
 func WithTransport(wrap func(http.RoundTripper) http.RoundTripper) ConnectOption {
@@ -55,9 +56,10 @@ func Connect(ctx context.Context, name string, opts ...ConnectOption) (*mcp.Clie
 	httpClient := &http.Client{Transport: transport, CheckRedirect: noRedirect}
 	// Every client can be asked. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
 	client := mcp.NewClient(&mcp.Implementation{Name: "holon-go", Version: "0.1.0"}, &mcp.ClientOptions{
-		Capabilities:   &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{Form: &mcp.FormElicitationCapabilities{}, URL: &mcp.URLElicitationCapabilities{}}},
+		Capabilities:   &mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapabilities{Form: &mcp.FormElicitationCapabilities{}, URL: &mcp.URLElicitationCapabilities{}}, Extensions: options.extensions},
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
 	})
+	addTaskMethods(client)
 	client.AddSendingMiddleware(knownPeer)
 	return client.Connect(context.WithValue(ctx, connectingKey{}, true), &mcp.StreamableClientTransport{
 		Endpoint:   endpoint,

@@ -68,15 +68,9 @@ func send(ctx context.Context, client *mcp.ClientSession, params mcp.CallToolPar
 }
 
 func (d *Dependency) CallTool(ctx context.Context, params *mcp.CallToolParams, elicit ...ElicitHandler) (*mcp.CallToolResult, error) {
-	if params == nil {
-		return nil, errors.New("tool parameters are required")
-	}
-	tool, ok := d.Tools[params.Name]
-	if !ok {
-		return nil, fmt.Errorf("unknown tool %s.%s", d.Name, params.Name)
-	}
-	if err := validate(tool.Input, params.Arguments); err != nil {
-		return nil, fmt.Errorf("arguments for %s.%s: %w", d.Name, params.Name, err)
+	tool, err := d.tool(params)
+	if err != nil {
+		return nil, err
 	}
 	client, err := Connect(ctx, d.Name)
 	if err != nil {
@@ -87,15 +81,37 @@ func (d *Dependency) CallTool(ctx context.Context, params *mcp.CallToolParams, e
 	if err != nil {
 		return nil, err
 	}
-	if !result.IsError && !result.NeedsInput() && len(tool.Output) > 0 {
-		if result.StructuredContent == nil {
-			return nil, fmt.Errorf("no structured output from %s.%s", d.Name, params.Name)
-		}
-		if err := validate(tool.Output, result.StructuredContent); err != nil {
-			return nil, fmt.Errorf("structured output from %s.%s: %w", d.Name, params.Name, err)
-		}
+	if err := d.output(params.Name, tool, result); err != nil {
+		return nil, err
 	}
 	return result, nil
+}
+
+func (d *Dependency) tool(params *mcp.CallToolParams) (ToolSchema, error) {
+	if params == nil {
+		return ToolSchema{}, errors.New("tool parameters are required")
+	}
+	tool, ok := d.Tools[params.Name]
+	if !ok {
+		return ToolSchema{}, fmt.Errorf("unknown tool %s.%s", d.Name, params.Name)
+	}
+	if err := validate(tool.Input, params.Arguments); err != nil {
+		return ToolSchema{}, fmt.Errorf("arguments for %s.%s: %w", d.Name, params.Name, err)
+	}
+	return tool, nil
+}
+
+func (d *Dependency) output(name string, tool ToolSchema, result *mcp.CallToolResult) error {
+	if result.IsError || result.NeedsInput() || len(tool.Output) == 0 {
+		return nil
+	}
+	if result.StructuredContent == nil {
+		return fmt.Errorf("no structured output from %s.%s", d.Name, name)
+	}
+	if err := validate(tool.Output, result.StructuredContent); err != nil {
+		return fmt.Errorf("structured output from %s.%s: %w", d.Name, name, err)
+	}
+	return nil
 }
 
 type ToolCallError struct {
